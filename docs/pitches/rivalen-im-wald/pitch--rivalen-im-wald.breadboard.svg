@@ -21,6 +21,7 @@
 <text x="620.0" y="211.5" font-size="18" fill="#1e1e1e" text-anchor="start">Fluss queren / Schiff bauen</text>
 <text x="620.0" y="241.5" font-size="18" fill="#1e1e1e" text-anchor="start">Uhr, Leute je Rival</text>
 <text x="620.0" y="271.5" font-size="18" fill="#1e1e1e" text-anchor="start">Esc</text>
+<text x="620.0" y="301.5" font-size="18" fill="#1e1e1e" text-anchor="start">Ansicht wechseln (Draufsicht / isometrisch)</text>
 <text x="1060.0" y="18.0" font-size="24" fill="#1e1e1e" text-anchor="start" font-weight="bold">Spielende</text>
 <path d="M1060.0,36.0 L1352.2,36.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 <text x="1060.0" y="61.5" font-size="18" fill="#1e1e1e" text-anchor="start">Rangliste: Leute, dann Bäume</text>
@@ -45,8 +46,8 @@
 <path d="M33.9,-24.6 L40.0,-12.0 L46.1,-24.6" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
 <path d="M1150.6,320.0 L1240.0,320.0 L1240.0,150.0 L1240.0,150.0 L1240.0,150.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M1227.4,156.1 L1240.0,150.0 L1227.4,143.9" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
-<path d="M1130.5,350.0 L1300.0,350.0 L1300.0,410.0 L700.0,410.0 L700.0,300.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-<path d="M706.1,312.6 L700.0,300.0 L693.9,312.6" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<path d="M1130.5,350.0 L1300.0,350.0 L1300.0,410.0 L700.0,410.0 L700.0,330.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M706.1,342.6 L700.0,330.0 L693.9,342.6" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
 <path d="M1150.6,380.0 L1330.0,380.0 L1330.0,440.0 L40.0,440.0 L40.0,115.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
 <path d="M46.1,127.6 L40.0,115.0 L33.9,127.6" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
 <text x="1030.0" y="182.0" font-size="16" fill="#868e96" text-anchor="start">time is up,</text>

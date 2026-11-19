@@ -23,6 +23,8 @@ The first playable succeeds when:
 
 - a player can play a whole game against one to three computer rivals on a
   board cut from the real map, natively and in a desktop browser;
+- the player can switch between a top-down and an isometric view at any time,
+  and the game plays the same in both;
 - enclosing a rival group, and being enclosed, can be seen coming and read
   afterwards: why it happened shows on the board;
 - the computer rivals expand, enclose and escape well enough that a first-time
@@ -46,8 +48,8 @@ like the Waldstatt's.
 
 The [breadboard](pitch--rivalen-im-wald.breadboard.excalidraw) shows the places:
 a start menu, setting up a game (board, two to four rivals, game length), the
-board itself, a pause menu, and the end with the ranking. Every seat but the
-player's is a computer rival.
+board itself with its view switch, a pause menu, and the end with the ranking.
+Every seat but the player's is a computer rival.
 
 ![Fat-marker sketch](pitch--rivalen-im-wald.fat-marker.svg)
 
@@ -115,7 +117,12 @@ can. A ship is used for one crossing.
 
 ## What the player sees
 
-The board is drawn top-down. Unexplored land is black. Land seen before but
+The board is drawn top-down or isometric, and one key switches between the two
+at any time, even while a group is cutting. Both views show the same tiles,
+groups, lines and fog, and drawing a line works the same way in either; only the
+drawing changes, never the game
+([ADR 0001](../../architecture/decisions/0001-move-groups-tile-by-tile-on-the-board.md)).
+Both use simple tiles and markers. Unexplored land is black. Land seen before but
 grown back is in fog, with its waters visible. Round each of the player's groups
 the board is clear, and other rivals' groups and trails show only there.
 
@@ -168,6 +175,11 @@ with the build, and games are not saved. The browser build is a static page.
 - **A clever computer rival.** No search or planning ahead. If the rules above
   are not enough to sometimes beat a new player, tune numbers before adding
   behaviour.
+- **The isometric view.** It is the top-down board turned into diamonds, not a
+  second board: the same tiles, markers and colours, drawn back to front by row
+  and column. The pointer picks a tile by inverting the same projection, and a
+  test checks that every tile maps to itself and back. The board stays flat and
+  has one fixed orientation.
 - **Drawing lines.** A line is a sequence of straight steps from tile to tile,
   following the pointer. No smoothing, no path-finding round obstacles: it stops
   at the first tile it may not cut.
@@ -180,8 +192,8 @@ with the build, and games are not saved. The browser build is a static page.
 - No buildings, food, mood, wear, deaths or economy beyond trees.
 - No saving a running game.
 - No phones or touch input in this pitch; the browser build targets desktops.
-- No isometric view and none of the Waldstatt's painted art; simple top-down
-  tiles and markers.
+- None of the Waldstatt's painted art; simple tiles and markers in both views.
+- No rotating or tilting the board, no terrain height and no free 3D camera.
 - No board editor and no boards beyond the first few round Einsiedeln; no map of
   all of Switzerland.
 - No sound and no scripts for groups or rivals.
