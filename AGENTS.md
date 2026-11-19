@@ -5,9 +5,8 @@ round Einsiedeln and win each other's Waldleute by enclosing them, as in Go
 ([game idea](docs/idea.md)). The first playable is shaped in the
 [Rivalen im Wald pitch](docs/pitches/rivalen-im-wald/pitch--rivalen-im-wald.md)
 and not built yet. The current implementation is still the template's starter
-platformer from the [starter platformer pitch](docs/pitches/starter-platformer/pitch--starter-platformer.md):
-one level from a text map, a player who runs and jumps with hand-written kinematics,
-coins, a goal flag, a following camera, and a HUD. Use the versions in `Cargo.toml`
+platformer: one level from a text map, a player who runs and jumps with
+hand-written kinematics, coins, a goal flag, a following camera, and a HUD. Use the versions in `Cargo.toml`
 and the dependencies pinned by `Cargo.lock`.
 
 The board comes from the Waldstatt (<https://2raben.github.io/waldstatt/>,

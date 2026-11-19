@@ -7,7 +7,7 @@ documentation corrections do not need one. See
 
 Save each pitch as `docs/pitches/<topic>/pitch--<slug>.md`, and keep breadboards,
 fat-marker sketches (for example Excalidraw files), and reference images beside
-it. The [starter platformer pitch](starter-platformer/pitch--starter-platformer.md)
+it. The [Rivalen im Wald pitch](rivalen-im-wald/pitch--rivalen-im-wald.md)
 is a worked example.
 
 ## Template
@@ -44,5 +44,4 @@ What this pitch explicitly does not include.
 
 | Pitch | Status |
 | --- | --- |
-| [Starter platformer](starter-platformer/pitch--starter-platformer.md) | implemented (the template's; to be replaced) |
 | [Rivalen im Wald – rivals enclose each other in the forest, as in Go](rivalen-im-wald/pitch--rivalen-im-wald.md) | shaped |

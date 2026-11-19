@@ -8,14 +8,15 @@ sources:
   - src/simulation.rs
   - src/visuals.rs
   - src/tests.rs
-  - ../../pitches/starter-platformer/pitch--starter-platformer.md
+  - https://github.com/2raben/waldstatt-go/blob/3b174ac/docs/pitches/starter-platformer/pitch--starter-platformer.md
 ---
 
 # 0001 — Move the player with hand-written kinematics on a fixed timestep
 
 ## Context
 
-The [starter platformer pitch](../../pitches/starter-platformer/pitch--starter-platformer.md)
+The [starter platformer pitch](https://github.com/2raben/waldstatt-go/blob/3b174ac/docs/pitches/starter-platformer/pitch--starter-platformer.md)
+(since removed from the tree)
 needs one box that runs, jumps, and lands on axis-aligned tile geometry, with
 behaviour that tests can check exactly. The template should also show readers
 where movement code lives rather than hide it inside an engine.
