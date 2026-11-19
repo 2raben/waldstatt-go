@@ -11,6 +11,7 @@ sources:
   - .mise/tasks/fmt
   - .mise/tasks/agents/init-claude
   - Cargo.toml
+  - ../../pitches/rivalen-im-wald/pitch--rivalen-im-wald.md
 ---
 
 # 0003 — Pin the toolchain and run project tasks with mise
@@ -39,6 +40,11 @@ Clippy. Executable scripts in `.mise/tasks/` define the tasks: `build`, `test`,
 arguments to Cargo, for example `mise run build --release`. Tasks call the same
 Cargo commands documented in [CONTRIBUTING.md](../../../CONTRIBUTING.md), so mise
 stays optional.
+
+The browser build planned in the
+[Rivalen im Wald pitch](../../pitches/rivalen-im-wald/pitch--rivalen-im-wald.md)
+adds its tasks here, building the same crate for `wasm32-unknown-unknown` and
+serving it locally, as Car Drive (`2raben/carrrgh`) does.
 
 Tasks in a subdirectory are namespaced: `agents/init-claude` runs as
 `mise run agents:init-claude` and links Claude Code's `CLAUDE.md` and

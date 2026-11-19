@@ -1,15 +1,22 @@
-# Bevy template
+# Waldstatt Go
 
-A starting point for 2D games built with [Bevy](https://bevy.org) 0.20. It ships a
-small, tested platformer, a documentation structure for shaping and recording work,
-agent instructions with a library of Bevy skills, and [mise](https://mise.jdx.dev)
-tasks to build, test, and run the game.
+Rivals fell their way through the forest round Einsiedeln and win each other's
+Waldleute by enclosing them, as in Go. The board is a piece of the real map, with
+the waters of the [Waldstatt](https://2raben.github.io/waldstatt/); see the
+[game idea](docs/idea.md). Built with [Bevy](https://bevy.org) 0.20 for native
+apps and the browser.
+
+The game is not built yet: the first playable is shaped in the
+[Rivalen im Wald pitch](docs/pitches/rivalen-im-wald/pitch--rivalen-im-wald.md),
+and the code is still the starter platformer of the Bevy template
+(`2raben/template-bevy`) this repository was created from, with its tests,
+documentation structure, agent skills and [mise](https://mise.jdx.dev) tasks.
 
 ## What's inside
 
 | Path | Purpose |
 | --- | --- |
-| `src/` | The starter platformer: headless simulation plus presentation plugins |
+| `src/` | The template's starter platformer, until the first pitch replaces it: headless simulation plus presentation plugins |
 | `docs/idea.md` | Game direction and longer-term possibilities |
 | `docs/pitches/` | Shaped feature proposals (Problem, Solution, Security, Rabbit Holes, No-Gos) |
 | `docs/architecture/` | Current structure and conventions, and [decision records](docs/architecture/decisions/README.md) |
@@ -18,18 +25,9 @@ tasks to build, test, and run the game.
 | `.mise/` | Pinned Rust toolchain and `build`, `test`, `run`, `check`, `fmt`, `agents:init-claude` tasks |
 | `AGENTS.md`, `CONTRIBUTING.md` | Working brief for agents; workflow and validation for everyone |
 
-## Starting a new game from this template
-
-1. Rename the package in `Cargo.toml` and the window title in `src/main.rs`.
-2. Replace [docs/idea.md](docs/idea.md) with your game's direction.
-3. Shape the first feature as a [pitch](docs/pitches/README.md). Keep the starter
-   pitch as an example or delete it with the code it describes.
-4. Review the [ADRs](docs/architecture/decisions/README.md): keep those that still
-   hold, and supersede those you change.
-5. Rewrite the project description in this README, `AGENTS.md`, and the manual
-   checks in `CONTRIBUTING.md` as the game takes shape.
-
 ## How to play the starter
+
+Until the first pitch is built, the game is the template's platformer.
 
 Run right, collect the coins, and touch the flag. Falling out of the level returns
 you to the start; Restart begins a fresh run with all coins back and the clock reset.

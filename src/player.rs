@@ -2,7 +2,7 @@
 //!
 //! Nothing here reads devices or draws. Input arrives through [`Controls`], and
 //! the result is stored in [`Position`], so the movement runs headless in tests.
-//! See ADR 0001 for why this is hand-written instead of a physics engine.
+//! This is the template's starter movement; ADR 0001 proposes the game's.
 
 use bevy::prelude::*;
 

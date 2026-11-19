@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-30 -180 2591 915" width="2591" height="915" font-family="Virgil, 'Comic Sans MS', cursive, sans-serif">
+<rect x="-30" y="-180" width="2591" height="915" fill="#ffffff"/>
+<text x="0.0" y="-129.0" font-size="28" fill="#1e1e1e" text-anchor="start" font-weight="bold">Rivalen im Wald: breadboard</text>
+<text x="0.0" y="18.0" font-size="24" fill="#1e1e1e" text-anchor="start" font-weight="bold">Startmenü</text>
+<path d="M0.0,36.0 L131.0,36.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="0.0" y="61.5" font-size="18" fill="#1e1e1e" text-anchor="start">Neues Spiel</text>
+<text x="0.0" y="91.5" font-size="18" fill="#1e1e1e" text-anchor="start">Beenden</text>
+<text x="260.0" y="18.0" font-size="24" fill="#1e1e1e" text-anchor="start" font-weight="bold">Neues Spiel</text>
+<path d="M260.0,36.0 L552.2,36.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="260.0" y="61.5" font-size="18" fill="#1e1e1e" text-anchor="start">Brett (aus wenigen Brettern)</text>
+<text x="260.0" y="91.5" font-size="18" fill="#1e1e1e" text-anchor="start">Rivalen: 2–4</text>
+<text x="260.0" y="121.5" font-size="18" fill="#1e1e1e" text-anchor="start">Spieldauer</text>
+<text x="260.0" y="151.5" font-size="18" fill="#1e1e1e" text-anchor="start">Starten</text>
+<text x="620.0" y="18.0" font-size="24" fill="#1e1e1e" text-anchor="start" font-weight="bold">Spielfeld</text>
+<path d="M620.0,36.0 L912.2,36.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="620.0" y="61.5" font-size="18" fill="#1e1e1e" text-anchor="start">Gruppe wählen</text>
+<text x="620.0" y="91.5" font-size="18" fill="#1e1e1e" text-anchor="start">Linie ziehen (bis L Felder)</text>
+<text x="620.0" y="121.5" font-size="18" fill="#1e1e1e" text-anchor="start">Linie ändern (Rest ersetzen)</text>
+<text x="620.0" y="151.5" font-size="18" fill="#1e1e1e" text-anchor="start">Teilen</text>
+<text x="620.0" y="181.5" font-size="18" fill="#1e1e1e" text-anchor="start">Zusammenlegen</text>
+<text x="620.0" y="211.5" font-size="18" fill="#1e1e1e" text-anchor="start">Fluss queren / Schiff bauen</text>
+<text x="620.0" y="241.5" font-size="18" fill="#1e1e1e" text-anchor="start">Uhr, Leute je Rival</text>
+<text x="620.0" y="271.5" font-size="18" fill="#1e1e1e" text-anchor="start">Esc</text>
+<text x="620.0" y="301.5" font-size="18" fill="#1e1e1e" text-anchor="start">Ansicht wechseln (Draufsicht / isometrisch)</text>
+<text x="1060.0" y="18.0" font-size="24" fill="#1e1e1e" text-anchor="start" font-weight="bold">Spielende</text>
+<path d="M1060.0,36.0 L1352.2,36.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1060.0" y="61.5" font-size="18" fill="#1e1e1e" text-anchor="start">Rangliste: Leute, dann Bäume</text>
+<text x="1060.0" y="91.5" font-size="18" fill="#1e1e1e" text-anchor="start">Nochmals</text>
+<text x="1060.0" y="121.5" font-size="18" fill="#1e1e1e" text-anchor="start">Zum Menü</text>
+<text x="1060.0" y="278.0" font-size="24" fill="#1e1e1e" text-anchor="start" font-weight="bold">Pause</text>
+<path d="M1060.0,296.0 L1150.6,296.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="1060.0" y="321.5" font-size="18" fill="#1e1e1e" text-anchor="start">Aufgeben</text>
+<text x="1060.0" y="351.5" font-size="18" fill="#1e1e1e" text-anchor="start">Weiter</text>
+<text x="1060.0" y="381.5" font-size="18" fill="#1e1e1e" text-anchor="start">Zum Menü</text>
+<path d="M120.9,60.0 L248.0,15.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M238.1,24.9 L248.0,15.0 L234.1,13.5" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<path d="M340.6,150.0 L590.0,150.0 L590.0,15.0 L608.0,15.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M595.4,21.1 L608.0,15.0 L595.4,8.9" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<path d="M821.5,240.0 L1020.0,240.0 L1020.0,15.0 L1048.0,15.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1035.4,21.1 L1048.0,15.0 L1035.4,8.9" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<path d="M660.2,270.0 L1040.0,270.0 L1040.0,275.0 L1048.0,275.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1035.4,281.1 L1048.0,275.0 L1035.4,268.9" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<path d="M1150.6,90.0 L1390.0,90.0 L1390.0,-50.0 L300.0,-50.0 L300.0,-12.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M293.9,-24.6 L300.0,-12.0 L306.1,-24.6" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<path d="M1150.6,120.0 L1420.0,120.0 L1420.0,-80.0 L40.0,-80.0 L40.0,-12.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M33.9,-24.6 L40.0,-12.0 L46.1,-24.6" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<path d="M1150.6,320.0 L1240.0,320.0 L1240.0,150.0 L1240.0,150.0 L1240.0,150.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M1227.4,156.1 L1240.0,150.0 L1227.4,143.9" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<path d="M1130.5,350.0 L1300.0,350.0 L1300.0,410.0 L700.0,410.0 L700.0,330.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M706.1,342.6 L700.0,330.0 L693.9,342.6" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<path d="M1150.6,380.0 L1330.0,380.0 L1330.0,440.0 L40.0,440.0 L40.0,115.0" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M46.1,127.6 L40.0,115.0 L33.9,127.6" fill="none" stroke="#1e1e1e" stroke-width="2" stroke-linecap="round"/>
+<text x="1030.0" y="182.0" font-size="16" fill="#868e96" text-anchor="start">time is up,</text>
+<text x="1030.0" y="202.0" font-size="16" fill="#868e96" text-anchor="start">or one rival left</text>
+<text x="260.0" y="202.0" font-size="16" fill="#868e96" text-anchor="start">a computer rival for every</text>
+<text x="260.0" y="222.0" font-size="16" fill="#868e96" text-anchor="start">seat but the player&#x27;s</text>
+<text x="620.0" y="482.0" font-size="16" fill="#868e96" text-anchor="start">the board itself and its gestures are drawn in the fat-marker sketch</text>
+</svg>

@@ -18,7 +18,7 @@ fn main() -> AppExit {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Bevy Template".into(),
+                title: "Waldstatt Go".into(),
                 resolution: (960, 540).into(),
                 ..default()
             }),

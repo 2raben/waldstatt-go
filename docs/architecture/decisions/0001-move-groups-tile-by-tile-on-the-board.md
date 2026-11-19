@@ -1,0 +1,84 @@
+---
+tags: [adr]
+status: proposed
+date: 2026-11-20
+sources:
+  - ../../pitches/rivalen-im-wald/pitch--rivalen-im-wald.md
+  - 0002-keep-the-rules-headless-behind-rival-commands.md
+---
+
+# 0001 — Move groups tile by tile on the board, whichever way it is viewed
+
+## Context
+
+Waldstatt Go is not a platformer. The
+[Rivalen im Wald pitch](../../pitches/rivalen-im-wald/pitch--rivalen-im-wald.md)
+puts groups of Waldleute on a board of 50 m tiles cut from the real map. A group
+cuts along a line the player draws, one straight step from tile to tile, more
+quickly the bigger it is, and much more slowly over water. Nothing jumps, falls or
+slides, so the box kinematics of the Bevy template this project started from
+([its movement record](https://github.com/2raben/waldstatt-go/blob/3b174ac/docs/architecture/decisions/0001-move-the-player-with-hand-written-kinematics.md))
+do not carry over.
+
+The board is seen from above, and the player can switch between a top-down and an
+isometric view while playing. Enclosure depends on exactly which tiles are open,
+the rules must step deterministically for tests and a later multiplayer
+([ADR 0002](0002-keep-the-rules-headless-behind-rival-commands.md)), and
+a view switch must never change the game.
+
+Alternatives considered:
+
+- **Keep continuous positions** and derive the tile from them. Groups would glide
+  freely, but every rule would have to round to tiles, and a step that changes how
+  float rounding is done could open a different tile on another machine.
+- **Simulate in screen or view coordinates.** Each view would need its own rules,
+  and switching views would move groups.
+- **A physics engine.** Nothing collides except with tiles that are open or not,
+  so it would add compile time and version coupling to Bevy for nothing.
+- **Discrete tile positions with integer progress on the fixed timestep.** The rules
+  speak in tiles, the result is exact, and every view is just a way of drawing the
+  same board.
+
+## Decision
+
+The simulation knows only board coordinates. A group's position is an integer
+tile; its line is a queue of neighbouring tiles. Each `FixedUpdate` step adds an
+integer amount of progress that depends on the group's size; when the progress
+reaches the cost of the next tile (cutting forest, or crossing water at ten times
+that), the group enters the tile and the trail updates. Speeds and costs are
+play-test values in one tuning table. No rule uses floating-point positions.
+
+Presentation owns the view. A view resource, top-down or isometric, chooses how a
+tile is projected to a `Transform`, and the same projection, inverted, turns the
+pointer into a tile for drawing lines. Switching views changes only that resource
+and the drawing. Between steps, visuals interpolate a group's drawn position from
+the tile it left to the tile it is entering, as the template does with
+`PreviousPosition`. How each view is drawn and sorted is left to the change that
+adds the views.
+
+Accept this record when the board rules are implemented.
+
+## Consequences
+
+- Rules and tests talk about tiles: a test can step a group along a line and assert
+  the tile it reaches after a given number of steps, exactly.
+- Deterministic stepping does not depend on float behaviour on native and in the
+  browser.
+- Groups visibly move in steps of whole tiles; smooth motion is presentation
+  interpolation only, and a group is never between tiles in the rules.
+- Every new view, such as zoom levels or a later 3D view, is presentation only;
+  picking must use the inverse of the active projection.
+- A group's speed has the granularity of a fixed step; very fast groups need costs
+  and progress scaled up, not a smaller timestep.
+
+## The tell
+
+- Board rule tests step scripted groups and assert tiles and step counts; they
+  pass headless without any view.
+- `rg -n "f32|f64|Vec2|Vec3" <board rules modules>` finds no position or progress
+  fields; review any hit.
+- `rg -n "Transform" <board rules modules>` finds nothing: only presentation code
+  writes transforms.
+- In the running game, switching views mid-move leaves every group on the same
+  tile and its line unchanged. This needs a manual check; the searches cannot show
+  that a projection and its inverse agree.

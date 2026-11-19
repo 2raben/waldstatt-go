@@ -14,7 +14,7 @@ or deadline only if your project wants one.
 
 Save pitches as `docs/pitches/<topic>/pitch--<slug>.md` using the
 [pitch template](docs/pitches/README.md#template), and add them to the pitch index.
-The [starter platformer pitch](docs/pitches/starter-platformer/pitch--starter-platformer.md)
+The [Rivalen im Wald pitch](docs/pitches/rivalen-im-wald/pitch--rivalen-im-wald.md)
 is a worked example of the sections: Problem, Solution, Security, Rabbit Holes, and
 No-Gos. Explain relevant security concerns or why none apply. Keep Excalidraw
 breadboards and rough sketches beside the pitch and link them from Solution when
