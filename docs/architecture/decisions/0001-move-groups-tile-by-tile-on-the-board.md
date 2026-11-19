@@ -2,14 +2,12 @@
 tags: [adr]
 status: proposed
 date: 2026-11-20
-supersedes: [0001-move-the-player-with-hand-written-kinematics.md]
 sources:
   - ../../pitches/rivalen-im-wald/pitch--rivalen-im-wald.md
-  - 0001-move-the-player-with-hand-written-kinematics.md
-  - 0002-keep-the-simulation-headless-behind-a-controls-resource.md
+  - 0002-keep-the-rules-headless-behind-rival-commands.md
 ---
 
-# 0004 — Move groups tile by tile on the board, whichever way it is viewed
+# 0001 — Move groups tile by tile on the board, whichever way it is viewed
 
 ## Context
 
@@ -18,14 +16,14 @@ Waldstatt Go is not a platformer. The
 puts groups of Waldleute on a board of 50 m tiles cut from the real map. A group
 cuts along a line the player draws, one straight step from tile to tile, more
 quickly the bigger it is, and much more slowly over water. Nothing jumps, falls or
-slides, so the box kinematics of
-[ADR 0001](0001-move-the-player-with-hand-written-kinematics.md) have nothing left
-to do.
+slides, so the box kinematics of the Bevy template this project started from
+([its movement record](https://github.com/2raben/waldstatt-go/blob/3b174ac/docs/architecture/decisions/0001-move-the-player-with-hand-written-kinematics.md))
+do not carry over.
 
 The board is seen from above, and the player can switch between a top-down and an
 isometric view while playing. Enclosure depends on exactly which tiles are open,
 the rules must step deterministically for tests and a later multiplayer
-([ADR 0002](0002-keep-the-simulation-headless-behind-a-controls-resource.md)), and
+([ADR 0002](0002-keep-the-rules-headless-behind-rival-commands.md)), and
 a view switch must never change the game.
 
 Alternatives considered:
@@ -35,8 +33,8 @@ Alternatives considered:
   float rounding is done could open a different tile on another machine.
 - **Simulate in screen or view coordinates.** Each view would need its own rules,
   and switching views would move groups.
-- **A physics engine.** It is still unneeded, as ADR 0001 found: nothing collides
-  except with tiles that are open or not.
+- **A physics engine.** Nothing collides except with tiles that are open or not,
+  so it would add compile time and version coupling to Bevy for nothing.
 - **Discrete tile positions with integer progress on the fixed timestep.** The rules
   speak in tiles, the result is exact, and every view is just a way of drawing the
   same board.
@@ -54,12 +52,11 @@ Presentation owns the view. A view resource, top-down or isometric, chooses how 
 tile is projected to a `Transform`, and the same projection, inverted, turns the
 pointer into a tile for drawing lines. Switching views changes only that resource
 and the drawing. Between steps, visuals interpolate a group's drawn position from
-the tile it left to the tile it is entering, as ADR 0001 did with
+the tile it left to the tile it is entering, as the template does with
 `PreviousPosition`. How each view is drawn and sorted is left to the change that
 adds the views.
 
-When the board rules are implemented, mark ADR 0001 superseded and this record
-accepted.
+Accept this record when the board rules are implemented.
 
 ## Consequences
 

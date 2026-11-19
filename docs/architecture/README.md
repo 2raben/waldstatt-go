@@ -13,16 +13,18 @@ The project is one Rust binary crate implementing the template's
 one level from a text map, a player who runs and jumps, coins, a goal flag, a
 following camera, and a HUD. [Cargo.toml](../../Cargo.toml) uses Rust edition 2024
 and Bevy 0.20 with default features disabled and the `2d`, `audio`, and `ui`
-feature sets enabled. Bevy is the only dependency; movement is hand-written
-([ADR 0001](decisions/0001-move-the-player-with-hand-written-kinematics.md)).
+feature sets enabled. Bevy is the only dependency; the platformer's movement is
+hand-written. [ADR 0001](decisions/0001-move-groups-tile-by-tile-on-the-board.md)
+proposes how the game's groups will move instead.
 Dependencies have a higher development optimization level than the application.
 [Cargo.lock](../../Cargo.lock) pins dependency resolution;
 [.cargo/config.toml](../../.cargo/config.toml) configures Clang and LLD for x86_64
 Linux, and [.mise/](../../.mise/config.toml) pins the toolchain and defines tasks
 ([ADR 0003](decisions/0003-run-project-tasks-with-mise.md)).
 
-[src/main.rs](../../src/main.rs) composes the app from plugins in two layers
-([ADR 0002](decisions/0002-keep-the-simulation-headless-behind-a-controls-resource.md)).
+[src/main.rs](../../src/main.rs) composes the app from plugins in two layers, the
+split that [ADR 0002](decisions/0002-keep-the-rules-headless-behind-rival-commands.md)
+proposes to keep for the game's rules.
 
 **Simulation**, which runs without a window and is used by the tests:
 

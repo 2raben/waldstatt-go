@@ -29,17 +29,18 @@ unused metadata and placeholders before accepting a record.
 that can expose drift. State the expected result and limitations; a search alone
 does not prove correctness.
 
-## Starting a project from the template
+## From the template
 
-The records below describe the starter game. Keep the ones that still hold for
-your project. When you replace a choice, for example by adopting a physics engine,
-write a new record that supersedes the old one instead of deleting it.
+Waldstatt Go started from a Bevy template whose records described its starter
+platformer. They were rewritten for this game: 0001 and 0002 propose how groups
+move and how the rules stay headless, and stay proposed until the board rules
+replace the platformer. 0003 holds as it was. The template's records remain
+readable at [3b174ac](https://github.com/2raben/waldstatt-go/tree/3b174ac/docs/architecture/decisions).
 
 ## Decision index
 
 | Record | Status |
 | --- | --- |
-| [0001 — Move the player with hand-written kinematics on a fixed timestep](0001-move-the-player-with-hand-written-kinematics.md) | accepted |
-| [0002 — Keep the simulation headless behind a `Controls` resource](0002-keep-the-simulation-headless-behind-a-controls-resource.md) | accepted |
+| [0001 — Move groups tile by tile on the board, whichever way it is viewed](0001-move-groups-tile-by-tile-on-the-board.md) | proposed |
+| [0002 — Keep the rules headless and drive every rival through commands](0002-keep-the-rules-headless-behind-rival-commands.md) | proposed |
 | [0003 — Pin the toolchain and run project tasks with mise](0003-run-project-tasks-with-mise.md) | accepted |
-| [0004 — Move groups tile by tile on the board, whichever way it is viewed](0004-move-groups-tile-by-tile-on-the-board.md) | proposed; supersedes 0001 once implemented |

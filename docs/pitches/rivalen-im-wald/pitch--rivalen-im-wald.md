@@ -134,12 +134,13 @@ water when a ring is closing round them.
 ## Built to be tested, and for later multiplayer
 
 The rules run headless on Bevy's fixed timestep behind the template's `Controls`
-resource ([ADR 0002](../../architecture/decisions/0002-keep-the-simulation-headless-behind-a-controls-resource.md)),
-extended to commands per rival. A game starts from a seed and steps
+resource, extended to commands per rival
+([ADR 0002](../../architecture/decisions/0002-keep-the-rules-headless-behind-rival-commands.md)). A game starts from a seed and steps
 deterministically, so tests can play scripted games through and a later
-multiplayer can run the same steps on every machine. The starter platformer and
-its [ADR 0001](../../architecture/decisions/0001-move-the-player-with-hand-written-kinematics.md)
-are retired.
+multiplayer can run the same steps on every machine. The starter platformer is
+retired; groups move as
+[ADR 0001](../../architecture/decisions/0001-move-groups-tile-by-tile-on-the-board.md)
+proposes.
 
 The browser build follows Car Drive's (`2raben/carrrgh`): the same crate for
 `wasm32-unknown-unknown` with WebGL2, mise tasks to build and serve it, and a
