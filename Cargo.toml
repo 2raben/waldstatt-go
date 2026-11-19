@@ -1,9 +1,9 @@
 [package]
-name = "bevy-template"
+name = "waldstatt-go"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97.1"
-description = "A Bevy game template with a small 2D platformer starter"
+description = "Waldstatt Go: rivals fell their way through the forest and enclose each other"
 publish = false
 
 [dependencies]
