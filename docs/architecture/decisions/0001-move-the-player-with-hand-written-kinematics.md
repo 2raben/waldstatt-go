@@ -13,6 +13,11 @@ sources:
 
 # 0001 — Move the player with hand-written kinematics on a fixed timestep
 
+> Waldstatt Go is not a platformer. This record still describes the starter code;
+> the proposed [ADR 0004](0004-move-groups-tile-by-tile-on-the-board.md) replaces
+> it with tile-by-tile movement on a board seen top-down or isometric, and
+> supersedes it once implemented.
+
 ## Context
 
 The [starter platformer pitch](https://github.com/2raben/waldstatt-go/blob/3b174ac/docs/pitches/starter-platformer/pitch--starter-platformer.md)

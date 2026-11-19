@@ -42,3 +42,4 @@ write a new record that supersedes the old one instead of deleting it.
 | [0001 — Move the player with hand-written kinematics on a fixed timestep](0001-move-the-player-with-hand-written-kinematics.md) | accepted |
 | [0002 — Keep the simulation headless behind a `Controls` resource](0002-keep-the-simulation-headless-behind-a-controls-resource.md) | accepted |
 | [0003 — Pin the toolchain and run project tasks with mise](0003-run-project-tasks-with-mise.md) | accepted |
+| [0004 — Move groups tile by tile on the board, whichever way it is viewed](0004-move-groups-tile-by-tile-on-the-board.md) | proposed; supersedes 0001 once implemented |
