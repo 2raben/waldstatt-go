@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use bevy::prelude::*;
 
 use crate::rules::enclosure::{can_split, is_trapped, room};
-use crate::rules::game::game_running;
+use crate::rules::game::{STEPS_PER_SECOND, game_running};
 use crate::rules::sight::Sight;
 use crate::rules::{
     Board, Controls, Game, Ground, Group, GroupId, Line, Order, Rival, RivalId, RuleSystems, Seat,
@@ -22,26 +22,133 @@ use crate::rules::{
 
 /// Steps between a computer rival's decisions.
 const THINK_EVERY: u64 = 16;
-/// Enemies this close make a smaller group seek company.
-const THREAT_RANGE: i32 = 8;
-/// How far a group goes to join another, in steps.
-const COMPANY_RANGE: i32 = 12;
-/// How far a group looks for a group to enclose, in steps.
-const HUNT_RANGE: i32 = 18;
-/// A ring may be at most this wide and high.
-const MAX_RING_SIDE: i32 = 18;
 /// Searches stop after this many tiles.
 const SEARCH_LIMIT: usize = 4000;
-/// At most this many groups close one ring.
-const HUNTERS: usize = 4;
-/// A target is given up after this many steps.
-const HUNT_STEPS: u64 = 64 * 60;
+
+/// How a computer rival weighs its choices. Like [`Tuning`], these are
+/// play-test values; the arena (`mise run arena`) measures how a change plays
+/// against the default over many seeded games.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Temperament {
+    /// Bigger enemies this close, in steps, make a group seek company.
+    pub threat_range: i32,
+    /// How far a group goes to join another, in steps.
+    pub company_range: i32,
+    /// How far a group looks for a group to enclose, in steps.
+    pub hunt_range: i32,
+    /// A ring may be at most this many steps wide and high.
+    pub max_ring_side: i32,
+    /// At most this many groups close one ring.
+    pub hunters: usize,
+    /// A target is given up after this many seconds.
+    pub hunt_seconds: u64,
+    /// The share of what its trail holds open, in percent, that a hunter
+    /// takes on of a ring; the rest is the way there.
+    pub ring_share: usize,
+    /// Calm groups of at least this many Waldleute split.
+    pub split_size: u32,
+    /// Other rivals' open tiles on one side that count as a wall to flee from.
+    pub flee_wall: usize,
+    /// Exploring: the score of each tile of the way.
+    pub explore_length: i32,
+    /// Exploring: the score of each unseen tile round the end.
+    pub explore_unseen: i32,
+    /// Exploring: what each other rival's open tile round the end costs.
+    pub explore_crowd: i32,
+    /// Exploring: the score of each step, up to 20, away from the rival's
+    /// nearest other group.
+    pub explore_spread: i32,
+}
+
+impl Default for Temperament {
+    fn default() -> Self {
+        Self {
+            threat_range: 8,
+            company_range: 12,
+            hunt_range: 18,
+            max_ring_side: 18,
+            hunters: 4,
+            hunt_seconds: 60,
+            ring_share: 67,
+            split_size: 5,
+            flee_wall: 3,
+            explore_length: 2,
+            explore_unseen: 3,
+            explore_crowd: 6,
+            explore_spread: 2,
+        }
+    }
+}
+
+// Only the arena, which the browser build leaves out, names the values.
+#[cfg(not(target_arch = "wasm32"))]
+impl Temperament {
+    /// The names [`Temperament::set`] takes, with their values.
+    pub fn values(&self) -> Vec<(&'static str, i64)> {
+        vec![
+            ("threat_range", self.threat_range.into()),
+            ("company_range", self.company_range.into()),
+            ("hunt_range", self.hunt_range.into()),
+            ("max_ring_side", self.max_ring_side.into()),
+            ("hunters", self.hunters as i64),
+            ("hunt_seconds", self.hunt_seconds as i64),
+            ("ring_share", self.ring_share as i64),
+            ("split_size", self.split_size.into()),
+            ("flee_wall", self.flee_wall as i64),
+            ("explore_length", self.explore_length.into()),
+            ("explore_unseen", self.explore_unseen.into()),
+            ("explore_crowd", self.explore_crowd.into()),
+            ("explore_spread", self.explore_spread.into()),
+        ]
+    }
+
+    /// Sets the value of that name; values must not be negative.
+    pub fn set(&mut self, name: &str, value: i64) -> Result<(), String> {
+        fn fit<T: TryFrom<i64>>(name: &str, value: i64) -> Result<T, String> {
+            T::try_from(value).map_err(|_| format!("{name}: {value} is out of range"))
+        }
+        if value < 0 {
+            return Err(format!("{name}: {value} is negative"));
+        }
+        match name {
+            "threat_range" => self.threat_range = fit(name, value)?,
+            "company_range" => self.company_range = fit(name, value)?,
+            "hunt_range" => self.hunt_range = fit(name, value)?,
+            "max_ring_side" => self.max_ring_side = fit(name, value)?,
+            "hunters" => self.hunters = fit(name, value)?,
+            "hunt_seconds" => self.hunt_seconds = fit(name, value)?,
+            "ring_share" => self.ring_share = fit(name, value)?,
+            "split_size" => self.split_size = fit(name, value)?,
+            "flee_wall" => self.flee_wall = fit(name, value)?,
+            "explore_length" => self.explore_length = fit(name, value)?,
+            "explore_unseen" => self.explore_unseen = fit(name, value)?,
+            "explore_crowd" => self.explore_crowd = fit(name, value)?,
+            "explore_spread" => self.explore_spread = fit(name, value)?,
+            _ => return Err(format!("no value called {name}")),
+        }
+        Ok(())
+    }
+}
+
+/// Each computer rival's [`Temperament`]: the default unless given here.
+#[derive(Resource, Clone, Debug, Default)]
+pub struct Temperaments {
+    pub by_rival: BTreeMap<RivalId, Temperament>,
+    pub default: Temperament,
+}
+
+impl Temperaments {
+    pub fn of(&self, rival: RivalId) -> &Temperament {
+        self.by_rival.get(&rival).unwrap_or(&self.default)
+    }
+}
 
 pub struct ComputerRivalsPlugin;
 
 impl Plugin for ComputerRivalsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Brains>()
+            .init_resource::<Temperaments>()
             .add_systems(FixedUpdate, think.before(RuleSystems).run_if(game_running));
     }
 }
@@ -67,6 +174,7 @@ struct View<'a> {
     board: &'a Board,
     sight: &'a Sight,
     tuning: &'a Tuning,
+    temperament: &'a Temperament,
     rival: RivalId,
     /// The rival's own trails, by group.
     trails: &'a BTreeMap<GroupId, &'a Trail>,
@@ -178,7 +286,7 @@ impl View<'_> {
 fn think(
     game: Res<Game>,
     board: Res<Board>,
-    tuning: Res<Tuning>,
+    (tuning, temperaments): (Res<Tuning>, Res<Temperaments>),
     rivals: Query<(&Rival, &Sight)>,
     groups: Query<(&Group, &Line, &Trail)>,
     mut controls: ResMut<Controls>,
@@ -208,6 +316,7 @@ fn think(
             board: &board,
             sight,
             tuning: &tuning,
+            temperament: temperaments.of(rival.id),
             rival: rival.id,
             trails: &trails,
         };
@@ -239,6 +348,7 @@ fn decide(
     enemies: &[&Group],
     brain: &mut Brain,
 ) -> Vec<Order> {
+    let temper = view.temperament;
     let mut orders = Vec::new();
     let mut busy: BTreeSet<GroupId> = BTreeSet::new();
 
@@ -263,9 +373,9 @@ fn decide(
         if busy.contains(&group.id) {
             continue;
         }
-        let threatened = enemies
-            .iter()
-            .any(|e| e.size() > group.size() && e.tile().distance(group.tile()) <= THREAT_RANGE);
+        let threatened = enemies.iter().any(|e| {
+            e.size() > group.size() && e.tile().distance(group.tile()) <= temper.threat_range
+        });
         if !threatened {
             continue;
         }
@@ -273,7 +383,7 @@ fn decide(
             .iter()
             .map(|(g, _)| *g)
             .filter(|g| g.id != group.id && !busy.contains(&g.id) && !view.board.is_water(g.tile()))
-            .filter(|g| g.tile().distance(group.tile()) <= COMPANY_RANGE)
+            .filter(|g| g.tile().distance(group.tile()) <= temper.company_range)
             .min_by_key(|g| (g.tile().distance(group.tile()), g.id));
         let Some(other) = company else {
             continue;
@@ -302,8 +412,8 @@ fn decide(
         }
         let calm = !enemies
             .iter()
-            .any(|e| e.tile().distance(group.tile()) <= HUNT_RANGE);
-        if group.size() >= 5 && calm && view.can_split(group) {
+            .any(|e| e.tile().distance(group.tile()) <= temper.hunt_range);
+        if group.size() >= temper.split_size && calm && view.can_split(group) {
             orders.push(Order::split(group.id));
             continue;
         }
@@ -316,11 +426,12 @@ fn decide(
 
 /// How many ring tiles a group takes on: what its trail holds open, less the
 /// way there.
-fn capacity(group: &Group) -> usize {
-    (line_limit(group.size()) * 2 / 3).max(4)
+fn capacity(temper: &Temperament, group: &Group) -> usize {
+    (line_limit(group.size()) * temper.ring_share / 100).max(4)
 }
 
-/// Closes a ring round the smallest group in sight, with up to [`HUNTERS`] of
+/// Closes a ring round the smallest group in sight, with up to
+/// [`Temperament::hunters`] of
 /// the groups nearest to it, if their trails together can hold it open. Each
 /// hunter cuts a piece of the ring its trail can hold, then waits there.
 fn hunt(
@@ -332,10 +443,11 @@ fn hunt(
     busy: &mut BTreeSet<GroupId>,
     orders: &mut Vec<Order>,
 ) {
+    let temper = view.temperament;
     // Keep a hunt while its target is in sight and inside the ring, and every
     // tile still to cut can be cut.
     let keep = brain.hunt.as_ref().is_some_and(|h| {
-        game.step < h.since + HUNT_STEPS
+        game.step < h.since + temper.hunt_seconds * STEPS_PER_SECOND
             && enemies.iter().any(|e| {
                 e.id == h.target && inside(&h.ring, e.tile()) && !view.board.is_water(e.tile())
             })
@@ -355,7 +467,7 @@ fn hunt(
             .filter(|e| !view.board.is_water(e.tile()))
             .filter(|e| {
                 free.iter()
-                    .any(|g| g.tile().distance(e.tile()) <= HUNT_RANGE)
+                    .any(|g| g.tile().distance(e.tile()) <= temper.hunt_range)
             })
             .collect();
         targets.sort_by_key(|e| {
@@ -373,7 +485,11 @@ fn hunt(
             let needed = needed_tiles(view, &ring).len();
             let mut nearest = free.clone();
             nearest.sort_by_key(|g| (g.tile().distance(target.tile()), g.id));
-            let reach: usize = nearest.iter().take(HUNTERS).map(|g| capacity(g)).sum();
+            let reach: usize = nearest
+                .iter()
+                .take(temper.hunters)
+                .map(|g| capacity(temper, g))
+                .sum();
             if reach >= needed {
                 brain.hunt = Some(Hunt {
                     target: target.id,
@@ -401,7 +517,7 @@ fn hunt(
         .copied()
         .collect();
     hunters.sort_by_key(|(g, _)| (g.tile().distance(target.tile()), g.id));
-    hunters.truncate(HUNTERS);
+    hunters.truncate(temper.hunters);
     // Hunters already on their piece keep it; hunters holding a piece wait.
     let mut free = Vec::new();
     for (group, group_line) in hunters {
@@ -434,7 +550,7 @@ fn hunt(
         if run[run.len() - 1].distance(group.tile()) < run[0].distance(group.tile()) {
             run.reverse();
         }
-        run.truncate(capacity(group));
+        run.truncate(capacity(temper, group));
         let start = run[0];
         let mut way = if group.tile() == start {
             Vec::new()
@@ -463,7 +579,11 @@ fn ring_round(view: &View, target: &Group) -> Option<Vec<Tile>> {
     let y0 = body.iter().map(|t| t.y).min()?;
     let y1 = body.iter().map(|t| t.y).max()?;
     (2..=4).find_map(|pad| {
-        let ring = rectangle(view.board, (x0 - pad, y0 - pad, x1 + pad, y1 + pad))?;
+        let ring = rectangle(
+            view.board,
+            view.temperament.max_ring_side,
+            (x0 - pad, y0 - pad, x1 + pad, y1 + pad),
+        )?;
         needed_tiles(view, &ring)
             .iter()
             .all(|&t| view.passable(t))
@@ -493,8 +613,12 @@ fn trail_seen(view: &View, target: &Group) -> Vec<Tile> {
 
 /// The loop of tiles round a rectangle, clockwise from the north-west, without
 /// the sides beyond the board's edge; `None` if it is too large.
-fn rectangle(board: &Board, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> Option<Vec<Tile>> {
-    if x1 - x0 > MAX_RING_SIDE || y1 - y0 > MAX_RING_SIDE {
+fn rectangle(
+    board: &Board,
+    max_side: i32,
+    (x0, y0, x1, y1): (i32, i32, i32, i32),
+) -> Option<Vec<Tile>> {
+    if x1 - x0 > max_side || y1 - y0 > max_side {
         return None;
     }
     let (w, h) = (board.width, board.height);
@@ -615,7 +739,8 @@ fn flee(view: &View, group: &Group) -> Option<Vec<Tile>> {
         }
     }
     // A side counts once it holds a wall, not a few lone tiles.
-    if sides.iter().filter(|&&n| n >= 3).count() < 3 {
+    let wall = view.temperament.flee_wall;
+    if sides.iter().filter(|&&n| n >= wall).count() < 3 {
         return None;
     }
     let (side, _) = sides.iter().enumerate().min_by_key(|&(i, &n)| (n, i))?;
@@ -634,6 +759,7 @@ fn explore(
     own: &[(&Group, &Line)],
     index: usize,
 ) -> Option<Vec<Tile>> {
+    let temper = view.temperament;
     let reach = line_limit(group.size()) as i32 / 2;
     // A turn of preference per group and over time, so rivals do not all
     // walk the same way.
@@ -649,13 +775,13 @@ fn explore(
         let Some(&end) = way.last() else {
             continue;
         };
-        let mut score = way.len() as i32 * 2;
+        let mut score = way.len() as i32 * temper.explore_length;
         for t in end.within(3) {
             if view.board.contains(t) && !view.sight.has_seen(view.board, t) {
-                score += 3;
+                score += temper.explore_unseen;
             }
             if view.other_open(t) {
-                score -= 6;
+                score -= temper.explore_crowd;
             }
         }
         let spread = own
@@ -665,7 +791,7 @@ fn explore(
             .min()
             .unwrap_or(20)
             .min(20);
-        score += spread * 2;
+        score += spread * temper.explore_spread;
         if best.as_ref().is_none_or(|(s, _)| score > *s) {
             best = Some((score, way));
         }
@@ -676,6 +802,22 @@ fn explore(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_temperament_value_can_be_set_by_its_name() {
+        let mut temperament = Temperament::default();
+        for (name, value) in Temperament::default().values() {
+            temperament.set(name, value + 1).expect("the name is known");
+        }
+        for ((name, value), (_, default)) in temperament
+            .values()
+            .into_iter()
+            .zip(Temperament::default().values())
+        {
+            assert_eq!(value, default + 1, "{name}");
+        }
+        assert!(temperament.set("hunters", -1).is_err());
+    }
 
     #[test]
     fn runs_follow_the_ring_and_wrap_round() {

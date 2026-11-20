@@ -28,7 +28,10 @@ for significant choices and their rationale.
   pages, tuning, game setup and end, groups of Waldleute each on its own tile,
   lines and trails, moving, merging and gathering (`moves.rs`), commands,
   enclosure, sight, and the seeded generator.
-- `src/ai.rs`: the computer rivals, headless, through the same commands.
+- `src/ai.rs`: the computer rivals, headless, through the same commands, and
+  their `Temperament`.
+- `src/arena.rs`: `waldstatt-go arena`, computer rivals playing whole games
+  headless to measure a temperament.
 - `src/style.rs`, `view.rs`, `ground.rs`, `markers.rs`: look and font, the two
   views and their projection, the ground in chunks, and markers on the board.
 - `src/art.rs`, `scenery.rs`, `people.rs`: sprites painted in code, the trees and
@@ -42,7 +45,7 @@ for significant choices and their rationale.
   linker settings.
 - `shell.nix`: native libraries for NixOS; run Cargo and mise tasks inside `nix-shell` there.
 - `.mise/config.toml` and `.mise/tasks/`: the pinned toolchain and the `build`,
-  `test`, `run`, `check`, `fmt`, `web:build`, and `web:serve` tasks.
+  `test`, `run`, `check`, `fmt`, `arena`, `web:build`, and `web:serve` tasks.
 - [docs/idea.md](docs/idea.md): game direction and longer-term possibilities.
 - [docs/pitches/](docs/pitches/README.md): bounded feature proposals and companion sketches.
 
