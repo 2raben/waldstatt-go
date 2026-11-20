@@ -12,6 +12,7 @@ use bevy::prelude::*;
 
 use crate::ground::{BoardScene, Watcher};
 use crate::input::{Draft, Hover, Selection};
+use crate::rules::board::RADIUS;
 use crate::rules::enclosure::is_trapped;
 use crate::rules::group::plan_step;
 use crate::rules::sight::Sight;
@@ -34,7 +35,7 @@ pub struct PlaceGroups;
 #[derive(Component)]
 struct GroupMarker;
 
-/// Where a group's lead is drawn now, in tile coordinates: between the tile
+/// Where a group's lead is drawn now, in board units: between the tile
 /// it left and the one it entered, leaning towards its next.
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct Drawn(pub Vec2);
@@ -153,7 +154,7 @@ fn spawn_scene_markers(
         Sprite {
             image: shapes.frame.clone(),
             color: Color::srgba(1.0, 1.0, 1.0, 0.7),
-            custom_size: Some(Vec2::ONE),
+            custom_size: Some(Vec2::new(1.0, 2.0 * RADIUS)),
             ..default()
         },
         Transform::from_xyz(0.0, 0.0, 0.5),
@@ -175,7 +176,7 @@ fn spawn_scene_markers(
     }
 }
 
-/// Where Waldmensch `k` of a group is drawn, in tile coordinates.
+/// Where Waldmensch `k` of a group is drawn, in board units.
 pub fn member_at(
     group: &Group,
     k: usize,
@@ -185,7 +186,7 @@ pub fn member_at(
     tuning: &Tuning,
     overstep: f32,
 ) -> Vec2 {
-    let centre = |t: Tile| Vec2::new(t.x as f32 + 0.5, t.y as f32 + 0.5);
+    let centre = Tile::centre;
     let member = &group.members[k];
     let since = game.step.saturating_sub(member.entered + 1) as f32 + overstep;
     let glide = (since / GLIDE_STEPS).clamp(0.0, 1.0);
@@ -382,7 +383,7 @@ fn draw_lines(
         commands.entity(dot).despawn();
     }
     let mut spawn = |tile: Tile, colour: Color, size: f32| {
-        let at = Vec2::new(tile.x as f32 + 0.5, tile.y as f32 + 0.5);
+        let at = tile.centre();
         commands.entity(plane).with_child((
             LineDot,
             Sprite {
@@ -421,8 +422,7 @@ fn place_hover(
     for (mut transform, mut visibility) in &mut frames {
         match hover.0 {
             Some(tile) => {
-                let at = Vec2::new(tile.x as f32 + 0.5, tile.y as f32 + 0.5);
-                transform.translation = on_plane(at, flat_z(*view, 0.5));
+                transform.translation = on_plane(tile.centre(), flat_z(*view, 0.5));
                 *visibility = Visibility::Inherited;
             }
             None => *visibility = Visibility::Hidden,
@@ -444,7 +444,7 @@ fn place_names(
         .0
         .and_then(|id| sights.iter().find(|(r, _)| r.id == id).map(|(_, s)| s));
     for (name, mut transform, mut visibility) in &mut names {
-        let at = Vec2::new(name.0.x as f32 + 0.5, name.0.y as f32 + 0.5);
+        let at = name.0.centre();
         // In the isometric view, on the water under boats and Waldleute.
         let z = match *view {
             BoardView::TopDown => Z_LABEL,

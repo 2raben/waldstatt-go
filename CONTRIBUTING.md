@@ -87,8 +87,8 @@ Check the affected behavior manually in a game:
 - The start menu leads to the setup; each board, two to four rivals, and each
   length can be chosen, and «Spiel beginnen» starts on the chosen board.
 - Pressing on any of your Waldleute (or its group's badge) selects the group;
-  dragging draws a line from that Waldmensch that follows the pointer, a
-  diagonal counting as one tile, no longer than the group's limit, and moving
+  dragging draws a line from that Waldmensch that follows the pointer from hex
+  to neighbouring hex, no longer than the group's limit, and moving
   back takes it back. Releasing sends it, and it leads. A click beside the group
   sends it the fastest way there, no further than its limit; dragging from
   beside it draws from its lead. A line into another rival's margin goes round

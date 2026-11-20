@@ -24,10 +24,10 @@ use crate::rules::{
 const THINK_EVERY: u64 = 16;
 /// Enemies this close make a smaller group seek company.
 const THREAT_RANGE: i32 = 8;
-/// How far a group goes to join another.
-const COMPANY_RANGE: i32 = 14;
-/// How far a group looks for a group to enclose.
-const HUNT_RANGE: i32 = 22;
+/// How far a group goes to join another, in steps.
+const COMPANY_RANGE: i32 = 12;
+/// How far a group looks for a group to enclose, in steps.
+const HUNT_RANGE: i32 = 18;
 /// A ring may be at most this wide and high.
 const MAX_RING_SIDE: i32 = 18;
 /// Searches stop after this many tiles.
@@ -96,7 +96,7 @@ impl View<'_> {
         }
         self.own_open(tile)
             || (!self.other_open(tile)
-                && !tile.neighbours8().into_iter().any(|t| self.other_open(t)))
+                && !tile.neighbours().into_iter().any(|t| self.other_open(t)))
     }
 
     /// Whether a group could enter this water tile.
@@ -124,8 +124,8 @@ impl View<'_> {
         })
     }
 
-    /// The shortest way of straight steps from `from` to a tile `goal`
-    /// accepts, over passable land and, if allowed, water.
+    /// The shortest way from `from` to a tile `goal` accepts, over passable
+    /// land and, if allowed, water.
     fn path(&self, group: &Group, goal: impl Fn(Tile) -> bool, water: bool) -> Option<Vec<Tile>> {
         let from = group.tile();
         let mut came: BTreeMap<Tile, Tile> = BTreeMap::new();
@@ -148,7 +148,7 @@ impl View<'_> {
             if came.len() > SEARCH_LIMIT {
                 return None;
             }
-            for next in tile.neighbours4() {
+            for next in tile.neighbours() {
                 if came.contains_key(&next) || !self.board.contains(next) {
                     continue;
                 }
@@ -164,25 +164,14 @@ impl View<'_> {
         None
     }
 
-    /// Straight steps from `from` towards `to`, the longer axis first, as far
-    /// as the tiles are passable.
+    /// The straightest way from `from` towards `to`, as far as the tiles are
+    /// passable.
     fn straight(&self, from: Tile, to: Tile, limit: usize) -> Vec<Tile> {
-        let mut line = Vec::new();
-        let mut at = from;
-        while at != to && line.len() < limit {
-            let (dx, dy) = (to.x - at.x, to.y - at.y);
-            let next = if dx.abs() >= dy.abs() {
-                Tile::new(at.x + dx.signum(), at.y)
-            } else {
-                Tile::new(at.x, at.y + dy.signum())
-            };
-            if !self.passable(next) {
-                break;
-            }
-            line.push(next);
-            at = next;
-        }
-        line
+        from.line_to(to)
+            .into_iter()
+            .take(limit)
+            .take_while(|&t| self.passable(t))
+            .collect()
     }
 }
 
@@ -276,7 +265,7 @@ fn decide(
         }
         let threatened = enemies
             .iter()
-            .any(|e| e.size() > group.size() && e.tile().chebyshev(group.tile()) <= THREAT_RANGE);
+            .any(|e| e.size() > group.size() && e.tile().distance(group.tile()) <= THREAT_RANGE);
         if !threatened {
             continue;
         }
@@ -284,8 +273,8 @@ fn decide(
             .iter()
             .map(|(g, _)| *g)
             .filter(|g| g.id != group.id && !busy.contains(&g.id) && !view.board.is_water(g.tile()))
-            .filter(|g| g.tile().manhattan(group.tile()) <= COMPANY_RANGE)
-            .min_by_key(|g| (g.tile().manhattan(group.tile()), g.id));
+            .filter(|g| g.tile().distance(group.tile()) <= COMPANY_RANGE)
+            .min_by_key(|g| (g.tile().distance(group.tile()), g.id));
         let Some(other) = company else {
             continue;
         };
@@ -313,7 +302,7 @@ fn decide(
         }
         let calm = !enemies
             .iter()
-            .any(|e| e.tile().chebyshev(group.tile()) <= HUNT_RANGE);
+            .any(|e| e.tile().distance(group.tile()) <= HUNT_RANGE);
         if group.size() >= 5 && calm && view.can_split(group) {
             orders.push(Order::split(group.id));
             continue;
@@ -366,13 +355,13 @@ fn hunt(
             .filter(|e| !view.board.is_water(e.tile()))
             .filter(|e| {
                 free.iter()
-                    .any(|g| g.tile().manhattan(e.tile()) <= HUNT_RANGE)
+                    .any(|g| g.tile().distance(e.tile()) <= HUNT_RANGE)
             })
             .collect();
         targets.sort_by_key(|e| {
             let near = free
                 .iter()
-                .map(|g| g.tile().manhattan(e.tile()))
+                .map(|g| g.tile().distance(e.tile()))
                 .min()
                 .unwrap_or(i32::MAX);
             (e.size(), near, e.id)
@@ -383,7 +372,7 @@ fn hunt(
             };
             let needed = needed_tiles(view, &ring).len();
             let mut nearest = free.clone();
-            nearest.sort_by_key(|g| (g.tile().manhattan(target.tile()), g.id));
+            nearest.sort_by_key(|g| (g.tile().distance(target.tile()), g.id));
             let reach: usize = nearest.iter().take(HUNTERS).map(|g| capacity(g)).sum();
             if reach >= needed {
                 brain.hunt = Some(Hunt {
@@ -411,7 +400,7 @@ fn hunt(
         .filter(|(g, _)| !busy.contains(&g.id) && !view.board.is_water(g.tile()))
         .copied()
         .collect();
-    hunters.sort_by_key(|(g, _)| (g.tile().manhattan(target.tile()), g.id));
+    hunters.sort_by_key(|(g, _)| (g.tile().distance(target.tile()), g.id));
     hunters.truncate(HUNTERS);
     // Hunters already on their piece keep it; hunters holding a piece wait.
     let mut free = Vec::new();
@@ -436,13 +425,13 @@ fn hunt(
         let Some(mut run) = runs.into_iter().min_by_key(|run| {
             let ends = [run[0], run[run.len() - 1]];
             ends.iter()
-                .map(|t| t.manhattan(group.tile()))
+                .map(|t| t.distance(group.tile()))
                 .min()
                 .unwrap_or(i32::MAX)
         }) else {
             break;
         };
-        if run[run.len() - 1].manhattan(group.tile()) < run[0].manhattan(group.tile()) {
+        if run[run.len() - 1].distance(group.tile()) < run[0].distance(group.tile()) {
             run.reverse();
         }
         run.truncate(capacity(group));
@@ -488,7 +477,7 @@ fn trail_seen(view: &View, target: &Group) -> Vec<Tile> {
     let mut body = BTreeSet::from([target.tile()]);
     let mut queue = VecDeque::from([target.tile()]);
     while let Some(tile) = queue.pop_front() {
-        for next in tile.neighbours8() {
+        for next in tile.neighbours() {
             if body.len() < 60
                 && !body.contains(&next)
                 && view.sight.sees(view.board, next)
@@ -546,7 +535,7 @@ fn needed_tiles(view: &View, ring: &[Tile]) -> BTreeSet<Tile> {
         .collect()
 }
 
-/// The needed tiles as runs along the ring, each one straight steps long.
+/// The needed tiles as runs along the ring, each tile next to the one before.
 fn runs_of(ring: &[Tile], needed: &BTreeSet<Tile>) -> Vec<Vec<Tile>> {
     let mut runs: Vec<Vec<Tile>> = Vec::new();
     for &tile in ring {
@@ -581,7 +570,7 @@ fn escape(view: &View, group: &Group) -> Option<Vec<Tile>> {
     let mut queue = VecDeque::from([group.tile()]);
     pocket.insert(group.tile());
     while let Some(tile) = queue.pop_front() {
-        for next in tile.neighbours4() {
+        for next in tile.neighbours() {
             if !pocket.contains(&next)
                 && view.passable(next)
                 && pocket.len() < view.tuning.trapped_room
@@ -610,24 +599,18 @@ fn escape(view: &View, group: &Group) -> Option<Vec<Tile>> {
 
 /// When another rival's tiles close in from three sides, runs to the fourth.
 fn flee(view: &View, group: &Group) -> Option<Vec<Tile>> {
+    let here = group.tile().centre();
+    // North, east, south and west.
+    const SIDES: [Vec2; 4] = [Vec2::NEG_Y, Vec2::X, Vec2::Y, Vec2::NEG_X];
     let mut sides = [0usize; 4];
-    for dy in -6..=6 {
-        for dx in -6i32..=6 {
-            let t = Tile::new(group.tile().x + dx, group.tile().y + dy);
-            if !view.other_open(t) {
-                continue;
-            }
-            if dy < 0 && dy.abs() >= dx.abs() {
-                sides[0] += 1;
-            }
-            if dx > 0 && dx.abs() >= dy.abs() {
-                sides[1] += 1;
-            }
-            if dy > 0 && dy.abs() >= dx.abs() {
-                sides[2] += 1;
-            }
-            if dx < 0 && dx.abs() >= dy.abs() {
-                sides[3] += 1;
+    for t in group.tile().within(6) {
+        if !view.other_open(t) {
+            continue;
+        }
+        let d = t.centre() - here;
+        for (side, towards) in SIDES.iter().enumerate() {
+            if d.dot(*towards) > 0.0 && d.dot(*towards) >= d.perp_dot(*towards).abs() {
+                sides[side] += 1;
             }
         }
     }
@@ -636,10 +619,9 @@ fn flee(view: &View, group: &Group) -> Option<Vec<Tile>> {
         return None;
     }
     let (side, _) = sides.iter().enumerate().min_by_key(|&(i, &n)| (n, i))?;
-    let reach = line_limit(group.size()) as i32;
-    let [dx, dy] = [[0, -1], [1, 0], [0, 1], [-1, 0]][side];
-    let to = Tile::new(group.tile().x + dx * reach, group.tile().y + dy * reach);
-    let way = view.straight(group.tile(), to, line_limit(group.size()));
+    let reach = line_limit(group.size());
+    let to = Tile::at(here + SIDES[side] * reach as f32);
+    let way = view.straight(group.tile(), to, reach);
     (way.len() >= 2).then_some(way)
 }
 
@@ -652,24 +634,13 @@ fn explore(
     own: &[(&Group, &Line)],
     index: usize,
 ) -> Option<Vec<Tile>> {
-    const DIRECTIONS: [(i32, i32); 8] = [
-        (0, -1),
-        (1, -1),
-        (1, 0),
-        (1, 1),
-        (0, 1),
-        (-1, 1),
-        (-1, 0),
-        (-1, -1),
-    ];
     let reach = line_limit(group.size()) as i32 / 2;
     // A turn of preference per group and over time, so rivals do not all
     // walk the same way.
     let turn = (game.step / 512 + index as u64 + u64::from(group.rival.0)) as usize;
     let mut best: Option<(i32, Vec<Tile>)> = None;
-    for k in 0..DIRECTIONS.len() {
-        let (dx, dy) = DIRECTIONS[(k + turn) % DIRECTIONS.len()];
-        let to = Tile::new(group.tile().x + dx * reach, group.tile().y + dy * reach);
+    for k in 0..6 {
+        let to = group.tile().go(k + turn, reach);
         let to = Tile::new(
             to.x.clamp(1, view.board.width - 2),
             to.y.clamp(1, view.board.height - 2),
@@ -679,21 +650,18 @@ fn explore(
             continue;
         };
         let mut score = way.len() as i32 * 2;
-        for y in -3..=3 {
-            for x in -3..=3 {
-                let t = Tile::new(end.x + x, end.y + y);
-                if view.board.contains(t) && !view.sight.has_seen(view.board, t) {
-                    score += 3;
-                }
-                if view.other_open(t) {
-                    score -= 6;
-                }
+        for t in end.within(3) {
+            if view.board.contains(t) && !view.sight.has_seen(view.board, t) {
+                score += 3;
+            }
+            if view.other_open(t) {
+                score -= 6;
             }
         }
         let spread = own
             .iter()
             .filter(|(g, _)| g.id != group.id)
-            .map(|(g, _)| g.tile().chebyshev(end))
+            .map(|(g, _)| g.tile().distance(end))
             .min()
             .unwrap_or(20)
             .min(20);

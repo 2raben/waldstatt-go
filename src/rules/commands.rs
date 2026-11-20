@@ -98,7 +98,7 @@ fn others_round(
         .iter()
         .filter(|(g, ..)| g.rival == rival && g.id != id)
         .flat_map(|(g, t, _)| t.tiles().chain(g.tiles()).collect::<Vec<_>>())
-        .flat_map(|t| std::iter::once(t).chain(t.neighbours8()))
+        .flat_map(|t| std::iter::once(t).chain(t.neighbours()))
         .collect()
 }
 

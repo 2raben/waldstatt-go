@@ -2,7 +2,9 @@
 tags: [adr]
 status: accepted
 date: 2026-11-20
-amended-by: [0007-spread-each-group-over-the-tiles-of-its-waldleute.md]
+amended-by:
+  - 0007-spread-each-group-over-the-tiles-of-its-waldleute.md
+  - 0008-lay-the-board-in-hexes.md
 sources:
   - src/rules/group.rs
   - src/rules/tuning.rs
@@ -18,6 +20,11 @@ sources:
 Amended by [ADR 0007](0007-spread-each-group-over-the-tiles-of-its-waldleute.md):
 each Waldmensch of a group now stands on its own tile and moves tile by tile;
 everything below still holds for each of them.
+
+Amended by [ADR 0008](0008-lay-the-board-in-hexes.md): tiles are hexes, and the
+isometric view is the hex board squashed to half its height with north up, not
+turned 45°; the projection, its inverse for picking and the test of every tile
+still work as below.
 
 ## Context
 

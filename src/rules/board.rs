@@ -21,7 +21,20 @@ impl RivalId {
     }
 }
 
-/// A tile in board coordinates.
+/// Rows of hexes lie this far apart, in steps of 50 m: √3 / 2.
+pub const ROW: f32 = 0.866_025_4;
+/// A hex's radius to its corners, in steps: 1 / √3. Its sides lie half a
+/// step from its centre.
+pub const RADIUS: f32 = 0.577_350_3;
+
+/// The six directions from a hex to its neighbours, clockwise from the
+/// north-east, as axial steps `(q, r)`: `q` grows east, `r` south-east.
+const DIRECTIONS: [(i32, i32); 6] = [(1, -1), (1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1)];
+
+/// A tile in board coordinates: a hex standing point up, in column `x` of
+/// row `y`. Every odd row is shifted half a tile east, so the board is a
+/// rectangle of rows with ragged sides. All six neighbours of a tile are one
+/// step of 50 m away and share a side with it (ADR 0008).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Tile {
     pub x: i32,
@@ -33,46 +46,103 @@ impl Tile {
         Self { x, y }
     }
 
-    /// North, east, south, west: the straight steps.
-    pub fn neighbours4(self) -> [Tile; 4] {
-        let Tile { x, y } = self;
-        [
-            Tile::new(x, y - 1),
-            Tile::new(x + 1, y),
-            Tile::new(x, y + 1),
-            Tile::new(x - 1, y),
-        ]
+    /// Axial coordinates `(q, r)`.
+    fn axial(self) -> (i32, i32) {
+        (self.x - (self.y - (self.y & 1)) / 2, self.y)
     }
 
-    /// All eight neighbours, clockwise from the north.
-    pub fn neighbours8(self) -> [Tile; 8] {
-        let Tile { x, y } = self;
-        [
-            Tile::new(x, y - 1),
-            Tile::new(x + 1, y - 1),
-            Tile::new(x + 1, y),
-            Tile::new(x + 1, y + 1),
-            Tile::new(x, y + 1),
-            Tile::new(x - 1, y + 1),
-            Tile::new(x - 1, y),
-            Tile::new(x - 1, y - 1),
-        ]
+    fn from_axial(q: i32, r: i32) -> Self {
+        Self::new(q + (r - (r & 1)) / 2, r)
     }
 
-    /// Whether `other` is one straight step away.
+    /// The six neighbours, clockwise from the north-east.
+    pub fn neighbours(self) -> [Tile; 6] {
+        let (q, r) = self.axial();
+        DIRECTIONS.map(|(dq, dr)| Tile::from_axial(q + dq, r + dr))
+    }
+
+    /// The tile `n` steps away in direction `d` (0 north-east, clockwise).
+    pub fn go(self, d: usize, n: i32) -> Tile {
+        let (q, r) = self.axial();
+        let (dq, dr) = DIRECTIONS[d % 6];
+        Tile::from_axial(q + dq * n, r + dr * n)
+    }
+
+    /// Whether `other` is one step away.
     pub fn is_next_to(self, other: Tile) -> bool {
-        (self.x - other.x).abs() + (self.y - other.y).abs() == 1
+        self.distance(other) == 1
     }
 
-    /// Steps along the larger axis, counting diagonals as one.
-    pub fn chebyshev(self, other: Tile) -> i32 {
-        (self.x - other.x).abs().max((self.y - other.y).abs())
+    /// Steps between the two tiles.
+    pub fn distance(self, other: Tile) -> i32 {
+        let ((q1, r1), (q2, r2)) = (self.axial(), other.axial());
+        let (dq, dr) = (q1 - q2, r1 - r2);
+        (dq.abs() + dr.abs() + (dq + dr).abs()) / 2
     }
 
-    /// Straight steps between the two tiles.
-    pub fn manhattan(self, other: Tile) -> i32 {
-        (self.x - other.x).abs() + (self.y - other.y).abs()
+    /// Every tile at most `radius` steps away, this one included, row by row.
+    pub fn within(self, radius: i32) -> impl Iterator<Item = Tile> {
+        let (q, r) = self.axial();
+        (-radius..=radius).flat_map(move |dr| {
+            let from = (-radius).max(-dr - radius);
+            let to = radius.min(-dr + radius);
+            (from..=to).map(move |dq| Tile::from_axial(q + dq, r + dr))
+        })
     }
+
+    /// The centre in board units: one unit is a step of 50 m, `x` grows east
+    /// and `y` south, and the board's north-west corner is the origin.
+    pub fn centre(self) -> Vec2 {
+        Vec2::new(
+            self.x as f32 + 0.5 + 0.5 * (self.y & 1) as f32,
+            self.y as f32 * ROW + RADIUS,
+        )
+    }
+
+    /// The tile whose hex holds the point, in board units.
+    pub fn at(p: Vec2) -> Tile {
+        let r = (p.y - RADIUS) / ROW;
+        let q = p.x - 0.5 - r / 2.0;
+        let (q, r) = round_cube(q, r);
+        Tile::from_axial(q, r)
+    }
+
+    /// The tiles of the straightest way from here to `to`, one step each,
+    /// without this tile and ending at `to`.
+    pub fn line_to(self, to: Tile) -> Vec<Tile> {
+        let n = self.distance(to);
+        let ((q1, r1), (q2, r2)) = (self.axial(), to.axial());
+        // Nudged off the corners between hexes, so ties always break alike.
+        let (q1, r1) = (q1 as f32 + 1e-4, r1 as f32 + 2e-4);
+        let (q2, r2) = (q2 as f32 + 1e-4, r2 as f32 + 2e-4);
+        (1..=n)
+            .map(|i| {
+                let t = i as f32 / n as f32;
+                let (q, r) = round_cube(q1 + (q2 - q1) * t, r1 + (r2 - r1) * t);
+                Tile::from_axial(q, r)
+            })
+            .collect()
+    }
+}
+
+/// How far a point, relative to a hex's centre in board units, lies inside
+/// the hex's nearest side; negative outside it.
+pub fn to_side(d: Vec2) -> f32 {
+    const NORMALS: [Vec2; 3] = [Vec2::X, Vec2::new(0.5, ROW), Vec2::new(-0.5, ROW)];
+    0.5 - NORMALS.iter().map(|n| d.dot(*n).abs()).fold(0.0, f32::max)
+}
+
+/// The hex nearest fractional axial coordinates.
+fn round_cube(q: f32, r: f32) -> (i32, i32) {
+    let s = -q - r;
+    let (mut rq, mut rr, rs) = (q.round(), r.round(), s.round());
+    let (dq, dr, ds) = ((rq - q).abs(), (rr - r).abs(), (rs - s).abs());
+    if dq > dr && dq > ds {
+        rq = -rr - rs;
+    } else if dr > ds {
+        rr = -rq - rs;
+    }
+    (rq as i32, rr as i32)
 }
 
 /// What a tile is made of.
@@ -153,12 +223,14 @@ impl Board {
 
     #[cfg(test)]
     /// A board from rows of text, for tests: `.` is land, `~` a river and a
-    /// digit a lake of that number.
+    /// digit a lake of that number. Odd rows may start with a space, so the
+    /// text reads as hexes; see [`hex_row`].
     pub fn from_rows(rows: &[&str]) -> Self {
+        let rows: Vec<&str> = rows.iter().map(|row| hex_row(row)).collect();
         let height = rows.len() as i32;
         let width = rows.first().map_or(0, |row| row.chars().count()) as i32;
         let mut ground = Vec::new();
-        for row in rows {
+        for row in &rows {
             assert_eq!(row.chars().count() as i32, width, "rows have one width");
             for c in row.chars() {
                 ground.push(match c {
@@ -192,7 +264,7 @@ impl Board {
             stack.push(start);
             while let Some(i) = stack.pop() {
                 size += 1;
-                for next in self.tile_at(i).neighbours4() {
+                for next in self.tile_at(i).neighbours() {
                     if let Some(j) = self.index(next)
                         && !self.ground[j].is_water()
                         && self.region[j] == NO_REGION
@@ -208,6 +280,15 @@ impl Board {
 
     pub fn len(&self) -> usize {
         self.ground.len()
+    }
+
+    /// The board's width and height in board units (see [`Tile::centre`]):
+    /// the odd rows reach half a tile further east.
+    pub fn extent(&self) -> Vec2 {
+        Vec2::new(
+            self.width as f32 + 0.5,
+            (self.height - 1).max(0) as f32 * ROW + 2.0 * RADIUS,
+        )
     }
 
     pub fn contains(&self, tile: Tile) -> bool {
@@ -280,49 +361,26 @@ impl Board {
         self.open[i] = rival;
     }
 
-    /// Whether a Waldmensch of `rival` may step from `from` to `to`: straight to
-    /// any tile next to it, or diagonally between two tiles of land when the two
-    /// tiles beside the step are land and no other rival's clearing, so a step
-    /// never slips through a diagonal ring or across the corner of a river.
-    pub fn can_step(&self, rival: RivalId, from: Tile, to: Tile) -> bool {
-        if !self.contains(to) {
-            return false;
-        }
-        let (dx, dy) = (to.x - from.x, to.y - from.y);
-        match (dx.abs(), dy.abs()) {
-            (1, 0) | (0, 1) => true,
-            (1, 1) => {
-                let clear = |t: Tile| {
-                    self.contains(t)
-                        && self.ground(t) == Ground::Land
-                        && self.open(t).is_none_or(|r| r == rival)
-                };
-                self.ground(from) == Ground::Land
-                    && self.ground(to) == Ground::Land
-                    && [
-                        Tile::new(from.x + dx, from.y),
-                        Tile::new(from.x, from.y + dy),
-                    ]
-                    .into_iter()
-                    .all(clear)
-            }
-            _ => false,
-        }
+    /// Whether a Waldmensch may step from `from` to `to`: to any of its six
+    /// neighbours on the board. Neighbouring hexes share a side, so no step
+    /// slips past a corner.
+    pub fn can_step(&self, from: Tile, to: Tile) -> bool {
+        self.contains(to) && from.is_next_to(to)
     }
 
-    /// The tiles a Waldmensch of `rival` may step to from `tile`.
-    pub fn steps(&self, rival: RivalId, tile: Tile) -> impl Iterator<Item = Tile> + '_ {
-        tile.neighbours8()
+    /// The tiles a Waldmensch may step to from `tile`.
+    pub fn steps(&self, tile: Tile) -> impl Iterator<Item = Tile> + '_ {
+        tile.neighbours()
             .into_iter()
-            .filter(move |&t| self.can_step(rival, tile, t))
+            .filter(move |&t| self.contains(t))
     }
 
-    /// Whether another rival than `rival` holds this tile or any of its eight
+    /// Whether another rival than `rival` holds this tile or any of its six
     /// neighbours open: such a tile cannot be cut, so a margin of trees always
     /// stays between rivals.
     pub fn in_margin_of_other(&self, tile: Tile, rival: RivalId) -> bool {
         std::iter::once(tile)
-            .chain(tile.neighbours8())
+            .chain(tile.neighbours())
             .any(|t| self.open(t).is_some_and(|r| r != rival))
     }
 
@@ -332,6 +390,13 @@ impl Board {
     }
 }
 
+/// A row of a test board as text: a leading space, which odd rows may have so
+/// the text reads as hexes, is dropped.
+#[cfg(test)]
+pub fn hex_row(row: &str) -> &str {
+    row.strip_prefix(' ').unwrap_or(row)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,25 +404,64 @@ mod tests {
     #[test]
     fn water_and_edge_divide_the_land_into_regions() {
         let board = Board::from_rows(&[
-            "..~...", //
-            "..~...", //
-            "~~~...", //
-            "......", //
+            "..~...",  //
+            " ..~...", //
+            "~~~...",  //
+            " ......", //
         ]);
         let corner = board.region(Tile::new(0, 0));
         assert_eq!(board.region_size(corner), 4);
         assert_eq!(board.region(Tile::new(2, 0)), NO_REGION);
         assert_eq!(board.largest_region(), board.region(Tile::new(5, 3)));
-        // A diagonal of water holds against straight steps.
-        let diagonal = Board::from_rows(&[
-            ".~..", //
-            "~...", //
-            "....", //
+        // A brook down the rows zigzags, and still no step slips through.
+        let brook = Board::from_rows(&[
+            ".~..",  //
+            " .~..", //
+            ".~..",  //
         ]);
-        assert_ne!(
-            diagonal.region(Tile::new(0, 0)),
-            diagonal.region(Tile::new(1, 1))
-        );
+        assert_eq!(brook.region_size(brook.region(Tile::new(0, 0))), 3);
+        assert_ne!(brook.region(Tile::new(0, 1)), brook.region(Tile::new(2, 1)));
+    }
+
+    #[test]
+    fn every_neighbour_is_one_step_away_and_shares_a_side() {
+        for tile in [Tile::new(4, 4), Tile::new(4, 5), Tile::new(-3, -1)] {
+            let neighbours = tile.neighbours();
+            for (k, n) in neighbours.into_iter().enumerate() {
+                assert_eq!(tile.distance(n), 1);
+                assert!((tile.centre().distance(n.centre()) - 1.0).abs() < 1e-5);
+                assert_eq!(tile.go(k, 1), n);
+                // Clockwise: each neighbour is next to the one before.
+                assert!(n.is_next_to(neighbours[(k + 1) % 6]));
+            }
+            assert_eq!(tile.within(2).count(), 19);
+            assert!(tile.within(2).all(|t| t.distance(tile) <= 2));
+            assert_eq!(Tile::at(tile.centre()), tile);
+        }
+        // A column zigzags down the rows: each tile is next to the one below.
+        assert!(Tile::new(3, 0).is_next_to(Tile::new(3, 1)));
+        assert!(Tile::new(3, 1).is_next_to(Tile::new(3, 2)));
+    }
+
+    #[test]
+    fn a_line_between_tiles_takes_one_tile_per_step() {
+        let from = Tile::new(1, 2);
+        for to in [
+            Tile::new(9, 2),
+            Tile::new(4, 9),
+            Tile::new(0, 7),
+            from.go(5, 6),
+        ] {
+            let line = from.line_to(to);
+            assert_eq!(line.len() as i32, from.distance(to));
+            assert_eq!(line.last(), Some(&to));
+            let mut at = from;
+            for &t in &line {
+                assert!(at.is_next_to(t), "{to:?}: {line:?}");
+                at = t;
+            }
+        }
+        assert!(from.line_to(from).is_empty());
     }
 
     #[test]

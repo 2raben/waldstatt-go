@@ -4,8 +4,9 @@
 //! The pointer is the mouse, or one finger on a touch screen: a tap is a
 //! click, and holding the finger still turns the press into the right button.
 //! It picks tiles through the active view, so drawing a line works the same in
-//! both views. A drawn line is a sequence of steps of one tile, straight or
-//! diagonal, that follows the pointer.
+//! both views. A drawn line is a sequence of steps from hex to neighbouring
+//! hex that follows the pointer; where the pointer jumps, the hexes between
+//! fill the gap.
 //!
 //! Pressing on one of the player's groups (a Waldmensch, its figure, its
 //! badge, or its clearing) selects it. Dragging on draws a line from that
@@ -293,11 +294,6 @@ fn follow_selection(
     }
 }
 
-/// One step from `at` towards `to`: diagonal while both axes differ.
-fn step_towards(at: Tile, to: Tile) -> Tile {
-    Tile::new(at.x + (to.x - at.x).signum(), at.y + (to.y - at.y).signum())
-}
-
 /// Extends the line from `start` towards `to` in steps of one tile, up to
 /// `limit` tiles, or takes it back to `to` if the line already passes there.
 pub fn extend_line(tiles: &mut Vec<Tile>, start: Tile, to: Tile, limit: usize) {
@@ -311,7 +307,9 @@ pub fn extend_line(tiles: &mut Vec<Tile>, start: Tile, to: Tile, limit: usize) {
     }
     let mut at = tiles.last().copied().unwrap_or(start);
     while at != to && tiles.len() < limit {
-        let next = step_towards(at, to);
+        let Some(&next) = at.line_to(to).first() else {
+            break;
+        };
         if next == start {
             tiles.clear();
         } else if let Some(i) = tiles.iter().position(|&t| t == next) {
@@ -350,7 +348,7 @@ fn group_under(
             let mut hits: Vec<(f32, Tile)> = group
                 .tiles()
                 .filter_map(|t| {
-                    let feet = view.project(Vec2::new(t.x as f32 + 0.5, t.y as f32 + 0.5));
+                    let feet = view.centre(t);
                     let d = world - feet;
                     (d.x.abs() < 6.0 * scale && (-2.0..17.0 * scale).contains(&d.y))
                         .then_some((d.length(), t))
@@ -373,7 +371,7 @@ fn group_under(
     let (group, ..) = own()
         .filter(|(_, trail, _)| trail.contains(tile))
         .min_by_key(|(g, ..)| g.id)?;
-    let nearest = group.tiles().min_by_key(|t| t.chebyshev(tile))?;
+    let nearest = group.tiles().min_by_key(|t| t.distance(tile))?;
     Some((group.id, nearest))
 }
 
@@ -599,10 +597,10 @@ mod tests {
         let start = Tile::new(0, 0);
         let mut tiles = Vec::new();
         extend_line(&mut tiles, start, Tile::new(3, 2), 10);
-        assert_eq!(tiles.len(), 3, "diagonals count one: {tiles:?}");
+        assert_eq!(tiles.len(), 4, "as many as the steps between: {tiles:?}");
         let mut at = start;
         for &tile in &tiles {
-            assert_eq!(at.chebyshev(tile), 1);
+            assert!(at.is_next_to(tile));
             at = tile;
         }
         assert_eq!(at, Tile::new(3, 2));

@@ -261,7 +261,7 @@ fn random_tile(board: &Board, rng: &mut Rng, also: impl Fn(Tile) -> bool) -> Opt
             rng.below(board.height as u32) as i32,
         );
         let clear = std::iter::once(tile)
-            .chain(tile.neighbours8())
+            .chain(tile.neighbours())
             .all(|t| board.open(t).is_none());
         if board.ground(tile) == Ground::Land && clear && also(tile) {
             return Some(tile);
@@ -296,7 +296,7 @@ pub fn grant_waldleute(
         }
         let free = |tile: Tile| {
             !std::iter::once(tile)
-                .chain(tile.neighbours8())
+                .chain(tile.neighbours())
                 .any(|t| standing.contains(&t))
                 && rivals.iter().all(|(other, rings)| {
                     other.id == rival || rings.0.as_ref().is_none_or(|p| !p.encloses(&board, tile))

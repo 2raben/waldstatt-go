@@ -200,7 +200,7 @@ impl Owners {
     /// rival: group `i` must not cut there.
     fn near_other(&self, board: &Board, tile: Tile, i: usize) -> bool {
         std::iter::once(tile)
-            .chain(tile.neighbours8())
+            .chain(tile.neighbours())
             .any(|t| self.other(board, t, i).is_some())
     }
 }
@@ -340,7 +340,7 @@ fn merge_touching(
     events: &mut Vec<GameEvent>,
 ) {
     let touched: Vec<Tile> = match kind {
-        Move::Cut => board.steps(bodies[i].group.rival, tile).collect(),
+        Move::Cut => board.steps(tile).collect(),
         Move::Walk => vec![tile],
         _ => return,
     };
@@ -358,7 +358,7 @@ fn merge_touching(
             .tiles()
             .chain(body.group.tiles())
             .filter(|&t| t != tile)
-            .flat_map(|t| board.steps(rival, t))
+            .flat_map(|t| board.steps(t))
             .filter_map(|t| owners.other(board, t, i))
             .collect();
         joined.retain(|j| !before.contains(j));
@@ -459,7 +459,7 @@ fn others_step(
         let wanted: BTreeSet<Tile> = group.tiles().collect();
         let paths = Paths::search(
             &[lead_tile],
-            |t| board.steps(group.rival, t),
+            |t| board.steps(t),
             |t| ground.cost(t),
             |_| true,
             &wanted,
@@ -508,7 +508,7 @@ fn others_step(
         for &k in &settled {
             let tile = group.members[k].tile;
             let inward = board
-                .steps(group.rival, tile)
+                .steps(tile)
                 .filter(|n| {
                     near.contains_key(n) && !taken.contains(n) && near.get(n) < near.get(&tile)
                 })
@@ -523,7 +523,7 @@ fn others_step(
             let wanted: BTreeSet<Tile> = loose.iter().map(|&k| group.members[k].tile).collect();
             let paths = Paths::search(
                 &free,
-                |t| board.steps(group.rival, t),
+                |t| board.steps(t),
                 |t| {
                     if claimed.contains(&t) && !wanted.contains(&t) {
                         None
@@ -596,7 +596,7 @@ fn home_tiles(
         hops += 1;
         let mut next_layer = Vec::new();
         for tile in layer {
-            for next in ground.board.steps(ground.rival, tile) {
+            for next in ground.board.steps(tile) {
                 if !reached.contains_key(&next)
                     && is_land(ground.board, next)
                     && ground.cost(next).is_some()
@@ -611,8 +611,9 @@ fn home_tiles(
     let mut tiles: Vec<(u32, i32, Tile)> = reached
         .into_iter()
         .map(|(t, h)| {
-            let (dx, dy) = (t.x - target.x, t.y - target.y);
-            (h, dx * dx + dy * dy, t)
+            // How far apart the centres are, in hundredths of a step.
+            let d = (t.centre().distance(target.centre()) * 100.0).round() as i32;
+            (h, d, t)
         })
         .collect();
     tiles.sort_by_key(|&(h, d, t)| {
@@ -627,7 +628,7 @@ fn home_tiles(
 }
 
 /// How many separate pieces of `open` the Waldleute stand on.
-fn pieces(board: &Board, rival: RivalId, open: &BTreeSet<Tile>, standing: &[Tile]) -> usize {
+fn pieces(board: &Board, open: &BTreeSet<Tile>, standing: &[Tile]) -> usize {
     let mut seen = BTreeSet::new();
     let mut count = 0;
     for &start in standing {
@@ -641,7 +642,7 @@ fn pieces(board: &Board, rival: RivalId, open: &BTreeSet<Tile>, standing: &[Tile
         let mut stack = vec![start];
         seen.insert(start);
         while let Some(tile) = stack.pop() {
-            for next in board.steps(rival, tile) {
+            for next in board.steps(tile) {
                 if open.contains(&next) && seen.insert(next) {
                     stack.push(next);
                 }
@@ -671,11 +672,11 @@ pub fn regrowable(
         .map(|(i, &(t, touched))| (touched, i, t))
         .collect();
     candidates.sort();
-    let now = pieces(board, group.rival, &open, &standing);
+    let now = pieces(board, &open, &standing);
     candidates.into_iter().map(|(.., t)| t).find(|tile| {
         let mut without = open.clone();
         without.remove(tile);
-        pieces(board, group.rival, &without, &standing) <= now
+        pieces(board, &without, &standing) <= now
     })
 }
 
@@ -686,7 +687,7 @@ fn deserted(board: &Board, group: &Group, trail: &Trail) -> Vec<Tile> {
     let mut reached: BTreeSet<Tile> = group.tiles().filter(|t| open.contains(t)).collect();
     let mut stack: Vec<Tile> = reached.iter().copied().collect();
     while let Some(tile) = stack.pop() {
-        for next in board.steps(group.rival, tile) {
+        for next in board.steps(tile) {
             if open.contains(&next) && reached.insert(next) {
                 stack.push(next);
             }
@@ -743,7 +744,7 @@ fn upkeep(
     if !on_water && !body.group.way.is_empty() {
         let open: BTreeSet<Tile> = body.trail.tiles().collect();
         let standing: Vec<Tile> = body.group.tiles().collect();
-        if pieces(board, body.group.rival, &open, &standing) <= 1 {
+        if pieces(board, &open, &standing) <= 1 {
             body.group.way.clear();
         }
     }
@@ -852,7 +853,8 @@ mod tests {
         let home: BTreeSet<Tile> = home_tiles(&ground, Tile::new(3, 1), 5, &BTreeSet::new())
             .into_keys()
             .collect();
-        let expected: BTreeSet<Tile> = [(3, 1), (3, 0), (2, 1), (4, 1), (3, 2)]
+        // The target and four of its six neighbours, the northern ones first.
+        let expected: BTreeSet<Tile> = [(3, 1), (3, 0), (4, 0), (2, 1), (4, 1)]
             .into_iter()
             .map(|(x, y)| Tile::new(x, y))
             .collect();

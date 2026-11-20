@@ -28,12 +28,16 @@ for the browser ([ADR 0005](decisions/0005-build-the-same-crate-for-the-browser.
 **Rules**, which run without a window and are used by the tests, in
 [src/rules/](../../src/rules/mod.rs) (`RulesPlugin`):
 
-- `board.rs`: `Tile` (board coordinates, `x` east, `y` south), `Ground` (land,
-  river, lake by number), and the `Board` resource: ground, the land regions water
+- `board.rs`: `Tile`, a hex standing point up in column `x` (east) of row `y`
+  (south), every odd row shifted half a tile east, with its six neighbours, its
+  distance in steps, lines, discs, its centre in board units and the tile under a
+  point ([ADR 0008](decisions/0008-lay-the-board-in-hexes.md)); `Ground` (land,
+  river, lake by number); and the `Board` resource: ground, the land regions water
   and the edge divide it into, trees per tile, and which rival holds each tile open.
-- `waters.rs`: the `BOARDS` (Einsiedeln, Biberbrugg, Hütten, 100 × 100 tiles each)
-  and `build_board`, which rasterizes the compiled-in water pages from
-  [data/waters/](../../data/waters/README.md) as the Waldstatt's `world.ts` does.
+- `waters.rs`: the `BOARDS` (Einsiedeln, Biberbrugg, Hütten, 100 hexes by 115
+  rows each, about 5 × 5 km) and `build_board`, which rasterizes the compiled-in
+  water pages from [data/waters/](../../data/waters/README.md) into hexes by their
+  centres.
 - `tuning.rs`: the `Tuning` table of play-test values and `line_limit(size)`,
   `(log2(size) + 1) × 10` computed exactly in integers.
 - `game.rs`: `Rival`, `Seat`, `GameSetup`, `start_game`, the `Game` resource (seed,
@@ -63,11 +67,14 @@ the rules, from that rival's `Sight` only, and writes `Controls`.
 
 - [style.rs](../../src/style.rs): palette, rival colours, Fira Sans as the default
   font (Bevy's own has no umlauts), shapes drawn in code, text helpers.
-- [view.rs](../../src/view.rs): `BoardView` (top-down or isometric), its projection
-  and inverse, and the transforms of the board's root and plane.
+- [view.rs](../../src/view.rs): `BoardView` (top-down or isometric, both with
+  north up; the isometric view squashes the board to half its height), its
+  projection and inverse, picking the nearest hex, and the transforms of the
+  board's root and plane.
 - [ground.rs](../../src/ground.rs): the board as square chunks of images,
-  sixteen pixels per tile, painted from what the player's rival sees, with the
-  flashes of enclosures; where each tile's trees stand (`tree_spots`).
+  sixteen pixels per step, each pixel painted from the hex it lies in and from
+  what the player's rival sees, with the flashes of enclosures; where each tile's
+  trees stand (`tree_spots`).
 - [art.rs](../../src/art.rs): the sprites, painted in code at start-up into one
   atlas ([ADR 0006](decisions/0006-paint-the-isometric-sprites-in-code.md)).
 - [scenery.rs](../../src/scenery.rs): the trees, saplings and glints of the
@@ -119,19 +126,20 @@ rings resolve rival by rival in that order, then by group number.
 
 Every Waldmensch of a group stands on a tile of its own on land, or with others
 on the water ([ADR 0007](decisions/0007-spread-each-group-over-the-tiles-of-its-waldleute.md)).
-A line starts from one of them, the lead: steps of one tile, straight or
-diagonal (a diagonal only between land whose two tiles beside it are land and no
-other rival's clearing, so no step slips through a diagonal ring or past a
-river's corner), at most `line_limit(size)` tiles, never onto a lake for a group
+A line starts from one of them, the lead: steps of one tile to any of the six
+neighbours of its hex, which share a side with it, so no step slips past a
+corner ([ADR 0008](decisions/0008-lay-the-board-in-hexes.md)), at most
+`line_limit(size)` tiles, never onto a lake for a group
 too big for a ship and never ending in a river. A click asks for the fastest way
 instead (`route.rs`: A* over the costs below, as the rival knows the board:
 others' clearings and margins only where it sees them now, unexplored land as
-forest; never next to the rival's other clearings), and when a line turns out
+forest; never next to the rival's other clearings; of ways equally fast, the one
+nearest the straight line), and when a line turns out
 blocked the lead finds another way to its end the same way, within
 `line_limit(size)` tiles in all; with no way round it stops short. Each step the lead adds `speed(size)` work towards the
 next tile; on reaching that tile's cost it enters. Cutting forest opens the tile,
 earns its trees and adds it to the trail. Walking on the rival's own open tiles is
-cheaper. A tile next to (or diagonal to) another rival's open tile cannot be cut,
+cheaper. A tile next to another rival's open tile cannot be cut,
 nor one another rival's Waldmensch stands on; the line then stops short. Wading
 into a river costs ten cuts per tile and, up front, the trees for every river tile
 ahead; launching a ship costs twenty cuts and its trees, carries at most ten, and
@@ -162,8 +170,8 @@ than `split_room` tiles from its lead (as its rival sees the board, so other
 rivals' margins, water and the edge hem it in), does not split.
 
 After the moves, each rival whose open tiles changed splits the board again: its
-open tiles and the water are walls, parts are found with straight steps (so rings
-hold diagonally), and within each land region every part smaller than its largest is
+open tiles and the water are walls, parts are found through the six neighbours of
+each hex, as rings are, and within each land region every part smaller than its largest is
 enclosed. Every other rival's Waldmensch standing on land in such a part is taken,
 and so is one on a lake in a part enclosed with the rivers alone as water walls;
 those in a river, or across it, stay free. The taken join the encloser's group with
@@ -180,7 +188,9 @@ Waldleute, then trees, then the order.
 
 ### Drawing
 
-The ground has sixteen pixels per tile. Unexplored tiles are black, tiles seen
+The ground has sixteen pixels per step, each pixel painted from the hex it lies
+in; seen from above, open hexes are outlined. Each rival sees a hex disc of
+`view_radius` steps round each of its Waldleute. Unexplored tiles are black, tiles seen
 before are in fog with their waters, other rivals' trails and groups show only
 within sight of the player's groups. Forest in another rival's margin is tinged red,
 so a closing ring shows before it closes; a red ring round a badge marks a group
@@ -199,8 +209,10 @@ next. In both views every Waldmensch stands where the rules put it, gliding from
 tile to tile: whoever cuts swings an axe, the others walk or stand, they wade in
 rivers and sit in a boat on a lake, which appears on the shore while it is being
 built. A badge over the lead shows the group's size, and the selection is a ring
-on the ground round the lead. In the isometric view, line dots and the hovered
-tile are drawn over the trees and water names lie on the water. Draw heights are
+on the ground round the lead. In the isometric view, north is up as seen from
+above; upright things are drawn back to front by row, trees turn see-through
+where open ground in sight lies north of them, line dots and the hovered hex are
+drawn over the trees, and water names lie on the water. Draw heights are
 constants in `view.rs`.
 
 ## Code conventions and boundaries
@@ -228,10 +240,12 @@ formatting, Clippy, build, test, and manual-run checks. There is no CI workflow
 for pull requests; the Pages workflow builds the browser version on `main`.
 
 - **Unit tests** beside each module cover the line limit, regions, rasterizing the
-  water pages and every board, partitions (rings, diagonal rings, gaps, water and
-  edge, water alone), trapping, line planning, margins, river costs, splitting
-  (also from a Waldmensch), projections in both views, drawn lines, and the
-  computer rivals' ring runs.
+  water pages and every board (no step between land crosses a river's line),
+  hex neighbours, distances and lines, partitions (rings, the smallest ring of
+  six, gaps, water and edge, water alone), trapping, line planning, margins, river
+  costs, splitting (also from a Waldmensch), projections and picking the nearest
+  hex in both views, the ground's hexes and shores, drawn lines, and the computer
+  rivals' ring runs.
 - **Game tests** in [src/tests.rs](../../src/tests.rs) step the real plugins headless,
   one fixed step per update, with commands written to `Controls`: cutting speed by
   size, trails growing back, margins, merging (also by a click on another

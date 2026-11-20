@@ -1,8 +1,9 @@
 //! Enclosing: a rival's open tiles, the water and the board's edge split the
 //! board into parts, and every part but the largest is enclosed by that rival.
 //!
-//! Rings connect diagonally, while parts are found with straight steps only,
-//! so no ring leaks at a corner. A part counts as enclosed only where the
+//! Rings and parts are both connected through the six neighbours of a hex,
+//! which share a side with it, so no ring leaks at a corner (ADR 0008). A
+//! part counts as enclosed only where the
 //! rival's tiles split land that water and the edge alone leave whole: a bend
 //! of a river or a corner of the board encloses nobody by itself.
 //!
@@ -94,7 +95,7 @@ impl Partition {
     }
 }
 
-/// Numbers the pieces the walls leave, by straight steps; walls get [`WALL`].
+/// Numbers the pieces the walls leave; walls get [`WALL`].
 fn parts(board: &Board, is_wall: impl Fn(Tile) -> bool) -> (Vec<u32>, Vec<usize>) {
     let mut part = vec![WALL; board.len()];
     let mut sizes: Vec<usize> = Vec::new();
@@ -112,7 +113,7 @@ fn parts(board: &Board, is_wall: impl Fn(Tile) -> bool) -> (Vec<u32>, Vec<usize>
         let mut size = 0;
         while let Some(tile) = stack.pop() {
             size += 1;
-            for next in tile.neighbours4() {
+            for next in tile.neighbours() {
                 if let Some(j) = board.index(next)
                     && part[j] == WALL
                     && !is_wall(next)
@@ -314,12 +315,11 @@ pub fn resolve_enclosures(
     }
 }
 
-/// The rival's open tiles that touch the part, straight or diagonally: the
-/// ring that closed round it.
+/// The rival's open tiles next to the part: the ring that closed round it.
 pub fn ring_round(board: &Board, rival: RivalId, part: &[Tile]) -> Vec<Tile> {
     let mut ring = BTreeSet::new();
     for tile in part {
-        for next in tile.neighbours8() {
+        for next in tile.neighbours() {
             if board.open(next) == Some(rival) {
                 ring.insert(next);
             }
@@ -346,7 +346,7 @@ pub fn room(
         let other = |t: Tile| sees(t) && board.open(t).is_some_and(|r| r != rival);
         match board.open(tile) {
             Some(r) if r == rival => true,
-            _ => !other(tile) && !tile.neighbours8().into_iter().any(other),
+            _ => !other(tile) && !tile.neighbours().into_iter().any(other),
         }
     };
     let mut seen = BTreeSet::from([start]);
@@ -355,7 +355,7 @@ pub fn room(
         if seen.len() >= cap {
             break;
         }
-        for next in tile.neighbours4() {
+        for next in tile.neighbours() {
             if !seen.contains(&next) && open_to(next) {
                 seen.insert(next);
                 queue.push_back(next);
@@ -388,16 +388,17 @@ pub fn can_split(board: &Board, group: &Group, cap: usize, sees: impl Fn(Tile) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rules::board::hex_row;
 
     const A: RivalId = RivalId(0);
 
     fn board_with(rows: &[&str]) -> Board {
-        // `#` marks A's open tiles on land.
+        // `#` marks A's open tiles on land; odd rows may start with a space.
         let ground: Vec<String> = rows.iter().map(|r| r.replace('#', ".")).collect();
         let refs: Vec<&str> = ground.iter().map(String::as_str).collect();
         let mut board = Board::from_rows(&refs);
         for (y, row) in rows.iter().enumerate() {
-            for (x, c) in row.chars().enumerate() {
+            for (x, c) in hex_row(row).chars().enumerate() {
                 if c == '#' {
                     board.set_open(Tile::new(x as i32, y as i32), Some(A));
                 }
@@ -409,11 +410,11 @@ mod tests {
     #[test]
     fn a_ring_encloses_its_inside() {
         let board = board_with(&[
-            "........", //
-            "..###...", //
-            "..#.#...", //
-            "..###...", //
-            "........", //
+            "........",  //
+            " ..###...", //
+            "..#.#...",  //
+            " ..###...", //
+            "........",  //
         ]);
         let p = Partition::of(&board, A);
         assert!(p.encloses(&board, Tile::new(3, 2)));
@@ -422,26 +423,27 @@ mod tests {
     }
 
     #[test]
-    fn a_diagonal_ring_holds() {
+    fn six_neighbours_make_the_smallest_ring() {
         let board = board_with(&[
-            ".......", //
-            "...#...", //
-            "..#.#..", //
-            "...#...", //
-            ".......", //
+            ".......",  //
+            " ..##...", //
+            "..#.#..",  //
+            " ..##...", //
+            ".......",  //
         ]);
         let p = Partition::of(&board, A);
         assert!(p.encloses(&board, Tile::new(3, 2)));
+        assert_eq!(ring_round(&board, A, &[Tile::new(3, 2)]).len(), 6);
     }
 
     #[test]
     fn a_ring_with_a_gap_encloses_nothing() {
         let board = board_with(&[
-            "........", //
-            "..###...", //
-            "..#.....", //
-            "..###...", //
-            "........", //
+            "........",  //
+            " ..###...", //
+            "..#.....",  //
+            " ..###...", //
+            "........",  //
         ]);
         let p = Partition::of(&board, A);
         assert!(!p.encloses(&board, Tile::new(3, 2)));
@@ -450,26 +452,28 @@ mod tests {
     #[test]
     fn water_and_edge_close_rings_with_the_rival() {
         let board = board_with(&[
-            "..#.~...", //
-            "..#.~...", //
-            "..###...", //
-            "........", //
-            "........", //
+            "..#.~...",  //
+            " ..#.~...", //
+            "..###...",  //
+            " ........", //
+            "........",  //
         ]);
         let p = Partition::of(&board, A);
         // Between the trail, the river and the board's top edge.
         assert!(p.encloses(&board, Tile::new(3, 0)));
+        assert!(p.encloses(&board, Tile::new(3, 1)));
         assert!(!p.encloses(&board, Tile::new(0, 4)));
     }
 
     #[test]
     fn water_alone_encloses_nobody() {
         let board = board_with(&[
-            "..~.....", //
-            "~~~.....", //
-            "......#.", //
+            "..~.....",  //
+            " ~~~.....", //
+            "......#.",  //
         ]);
         let p = Partition::of(&board, A);
+        assert_eq!(board.region_size(board.region(Tile::new(0, 0))), 2);
         assert!(!p.encloses(&board, Tile::new(0, 0)));
     }
 

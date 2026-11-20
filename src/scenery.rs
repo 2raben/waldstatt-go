@@ -23,8 +23,12 @@ use crate::view::{BoardPlane, BoardView, Z_GLINT, Z_UPRIGHT};
 const TREE_SCALE: f32 = 0.8;
 /// How opaque a tree in front of open ground is.
 const SEE_THROUGH: f32 = 0.38;
-/// The tiles behind a tree that it hides in the isometric view, relative to it.
-const BEHIND: [(i32, i32); 6] = [(-1, 0), (0, -1), (-1, -1), (-2, -1), (-1, -2), (-2, -2)];
+/// The tiles behind a tree that it hides in the isometric view, where north
+/// is up: the two north of it and the one two rows up.
+fn behind(tile: Tile) -> [Tile; 3] {
+    let (north_west, north_east) = (tile.go(5, 1), tile.go(0, 1));
+    [north_west, north_east, north_west.go(0, 1)]
+}
 /// Marks a look whose trees are see-through.
 const FADED: u32 = 1 << 30;
 
@@ -111,10 +115,7 @@ fn plant(
                     continue;
                 }
                 let unit = |shift: u32| ((hash >> shift) & 0xFF) as f32 / 255.0;
-                let at = Vec2::new(
-                    tile.x as f32 + 0.2 + 0.6 * unit(8),
-                    tile.y as f32 + 0.2 + 0.6 * unit(16),
-                );
+                let at = tile.centre() + Vec2::new(unit(8) - 0.5, unit(16) - 0.5) * 0.6;
                 let (sprite, anchor) = art.sprite(art.glint, 0.7 + 0.6 * unit(24));
                 commands.spawn((
                     BoardScene,
@@ -156,11 +157,9 @@ fn tend(
     let iso = *view == BoardView::Isometric;
     for (i, &look) in looks.iter().enumerate() {
         let tile = board.tile_at(i);
-        let faded = BEHIND.iter().any(|&(dx, dy)| {
-            board
-                .index(Tile::new(tile.x + dx, tile.y + dy))
-                .is_some_and(|j| is_clearing(looks[j]))
-        });
+        let faded = behind(tile)
+            .into_iter()
+            .any(|t| board.index(t).is_some_and(|j| is_clearing(looks[j])));
         let key = look | if faded { FADED } else { 0 };
         if !all && grove.looks[i] == key {
             continue;
