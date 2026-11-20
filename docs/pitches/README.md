@@ -45,3 +45,4 @@ What this pitch explicitly does not include.
 | Pitch | Status |
 | --- | --- |
 | [Rivalen im Wald – rivals enclose each other in the forest, as in Go](rivalen-im-wald/pitch--rivalen-im-wald.md) | implemented |
+| [Hex board – one step the same in every direction](hex-board/pitch--hex-board.md) | shaped |
