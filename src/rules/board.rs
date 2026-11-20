@@ -33,7 +33,7 @@ impl Tile {
         Self { x, y }
     }
 
-    /// North, east, south, west: the straight steps groups take.
+    /// North, east, south, west: the straight steps.
     pub fn neighbours4(self) -> [Tile; 4] {
         let Tile { x, y } = self;
         [
@@ -247,7 +247,8 @@ impl Board {
         self.region_sizes.get(region as usize).copied().unwrap_or(0)
     }
 
-    /// The region with the most land: where rivals start.
+    /// The region with the most land.
+    #[cfg(test)]
     pub fn largest_region(&self) -> u32 {
         (0..self.region_sizes.len() as u32)
             .max_by_key(|&r| (self.region_sizes[r as usize], std::cmp::Reverse(r)))
@@ -277,6 +278,43 @@ impl Board {
             self.changed[changed.index()] = true;
         }
         self.open[i] = rival;
+    }
+
+    /// Whether a Waldmensch of `rival` may step from `from` to `to`: straight to
+    /// any tile next to it, or diagonally between two tiles of land when the two
+    /// tiles beside the step are land and no other rival's clearing, so a step
+    /// never slips through a diagonal ring or across the corner of a river.
+    pub fn can_step(&self, rival: RivalId, from: Tile, to: Tile) -> bool {
+        if !self.contains(to) {
+            return false;
+        }
+        let (dx, dy) = (to.x - from.x, to.y - from.y);
+        match (dx.abs(), dy.abs()) {
+            (1, 0) | (0, 1) => true,
+            (1, 1) => {
+                let clear = |t: Tile| {
+                    self.contains(t)
+                        && self.ground(t) == Ground::Land
+                        && self.open(t).is_none_or(|r| r == rival)
+                };
+                self.ground(from) == Ground::Land
+                    && self.ground(to) == Ground::Land
+                    && [
+                        Tile::new(from.x + dx, from.y),
+                        Tile::new(from.x, from.y + dy),
+                    ]
+                    .into_iter()
+                    .all(clear)
+            }
+            _ => false,
+        }
+    }
+
+    /// The tiles a Waldmensch of `rival` may step to from `tile`.
+    pub fn steps(&self, rival: RivalId, tile: Tile) -> impl Iterator<Item = Tile> + '_ {
+        tile.neighbours8()
+            .into_iter()
+            .filter(move |&t| self.can_step(rival, tile, t))
     }
 
     /// Whether another rival than `rival` holds this tile or any of its eight

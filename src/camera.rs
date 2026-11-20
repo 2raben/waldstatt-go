@@ -157,7 +157,7 @@ fn centre_on_selection(
     else {
         return;
     };
-    let at = view.centre(group.tile);
+    let at = view.centre(group.tile());
     for mut transform in &mut cameras {
         transform.translation = at.extend(transform.translation.z);
     }

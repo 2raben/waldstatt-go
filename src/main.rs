@@ -2,12 +2,15 @@
 //! win each other's Waldleute by enclosing them, as in Go.
 
 mod ai;
+mod art;
 mod camera;
 mod ground;
 mod hud;
 mod input;
 mod markers;
+mod people;
 mod rules;
+mod scenery;
 mod screens;
 mod style;
 mod view;
@@ -29,12 +32,15 @@ fn main() -> AppExit {
             ai::ComputerRivalsPlugin,
             // Presentation.
             style::StylePlugin,
+            art::ArtPlugin,
             view::ViewPlugin,
             screens::ScreensPlugin,
             input::InputPlugin,
             camera::CameraPlugin,
             ground::GroundPlugin,
             markers::MarkersPlugin,
+            scenery::SceneryPlugin,
+            people::PeoplePlugin,
             hud::HudPlugin,
         ))
         .run()

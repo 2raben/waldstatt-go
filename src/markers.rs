@@ -1,42 +1,49 @@
 //! Markers on the board: groups, the selection, lines, the line being drawn,
 //! the tile under the pointer and the waters' names.
 //!
-//! Groups are upright discs placed with the view's projection; lines and
-//! highlights lie flat on the board's plane, so they turn with the view. A
-//! group's disc glides from the tile it left to the tile it entered and leans
-//! towards the tile it is working on; in the rules it is always on one tile.
+//! In both views every Waldmensch stands on the board (`people.rs`); a badge
+//! over the lead tells the group's size and colour. Lines and highlights lie
+//! flat on the board's plane, so they turn with the view; in the isometric
+//! view they are drawn over the trees. A Waldmensch glides from the tile it
+//! left to the tile it entered and leans towards the tile it is working on;
+//! in the rules it is always on one tile.
 
 use bevy::prelude::*;
 
 use crate::ground::{BoardScene, Watcher};
 use crate::input::{Draft, Hover, Selection};
 use crate::rules::enclosure::is_trapped;
-use crate::rules::group::{Activity, activity, plan_step};
+use crate::rules::group::plan_step;
 use crate::rules::sight::Sight;
-use crate::rules::{Board, Game, Ground, Group, GroupId, Line, Rival, Tile, Tuning};
+use crate::rules::{Board, Game, Group, GroupId, Line, Rival, Tile, Tuning};
 use crate::style::{Shapes, palette, rival_colour};
-use crate::view::{BoardPlane, BoardView, on_plane};
+use crate::view::{
+    BoardPlane, BoardView, ISO, Z_BADGE, Z_GLINT, Z_LABEL, Z_OVER, Z_UPRIGHT, on_plane,
+};
 
-/// Fixed steps a disc takes to glide to its new tile.
+/// Fixed steps a Waldmensch takes to glide to its new tile.
 const GLIDE_STEPS: f32 = 6.0;
-/// Size of a group's disc, in tiles.
-const DISC: f32 = 0.9;
+/// Size of a group's badge, in tiles of the view.
+const BADGE: f32 = 0.75;
 
-const Z_MARKERS: f32 = 10.0;
-const Z_LABELS: f32 = 40.0;
+/// Places the groups and sets [`Drawn`]; what follows a group runs after it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PlaceGroups;
 
 /// Added to rule entities that are groups: their drawing.
 #[derive(Component)]
 struct GroupMarker;
+
+/// Where a group's lead is drawn now, in tile coordinates: between the tile
+/// it left and the one it entered, leaning towards its next.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Drawn(pub Vec2);
 
 #[derive(Component)]
 struct SizeText;
 
 #[derive(Component)]
 struct DangerRing;
-
-#[derive(Component)]
-struct ShipMark;
 
 #[derive(Component)]
 struct SelectionRing;
@@ -59,7 +66,12 @@ impl Plugin for MarkersPlugin {
         app.add_systems(Update, (decorate_groups, spawn_scene_markers, draw_lines))
             .add_systems(
                 PostUpdate,
-                (place_groups, place_selection, place_hover, place_names)
+                (
+                    place_groups.in_set(PlaceGroups),
+                    place_selection.after(PlaceGroups),
+                    place_hover,
+                    place_names,
+                )
                     .before(TransformSystems::Propagate),
             );
     }
@@ -81,6 +93,7 @@ fn decorate_groups(
     for entity in &groups {
         commands.entity(entity).insert((
             GroupMarker,
+            Drawn::default(),
             Sprite {
                 image: shapes.disc.clone(),
                 ..default()
@@ -106,12 +119,6 @@ fn decorate_groups(
                         ..default()
                     },
                     Transform::from_xyz(0.0, 0.0, 0.001),
-                    Visibility::Hidden,
-                ),
-                (
-                    ShipMark,
-                    Sprite::from_color(Color::srgb(0.45, 0.3, 0.16), Vec2::ONE),
-                    Transform::from_xyz(0.0, -3.0, -0.001),
                     Visibility::Hidden,
                 ),
             ],
@@ -168,9 +175,10 @@ fn spawn_scene_markers(
     }
 }
 
-/// Where a group's disc is drawn, in tile coordinates.
-fn drawn_at(
+/// Where Waldmensch `k` of a group is drawn, in tile coordinates.
+pub fn member_at(
     group: &Group,
+    k: usize,
     line: &Line,
     game: &Game,
     board: &Board,
@@ -178,14 +186,23 @@ fn drawn_at(
     overstep: f32,
 ) -> Vec2 {
     let centre = |t: Tile| Vec2::new(t.x as f32 + 0.5, t.y as f32 + 0.5);
-    let since = game.step.saturating_sub(group.entered + 1) as f32 + overstep;
+    let member = &group.members[k];
+    let since = game.step.saturating_sub(member.entered + 1) as f32 + overstep;
     let glide = (since / GLIDE_STEPS).clamp(0.0, 1.0);
-    let mut at = centre(group.from).lerp(centre(group.tile), glide);
-    if let Some(&next) = line.0.front()
-        && let Some(plan) = plan_step(board, tuning, group, &line.0, false)
-    {
-        let work = group.progress as f32 / plan.work.max(1) as f32;
-        at += (centre(next) - centre(group.tile)) * work * 0.35 * glide;
+    let mut at = centre(member.from).lerp(centre(member.tile), glide);
+    let Some(next) = member.toward else {
+        return at;
+    };
+    let work = if k == group.lead {
+        plan_step(board, tuning, group, &line.0, false).map(|p| p.work)
+    } else if board.open(next).is_none() && !board.is_water(next) {
+        Some(tuning.cut_work)
+    } else {
+        Some(tuning.walk_work)
+    };
+    if let Some(work) = work {
+        let done = (member.progress as f32 / work.max(1) as f32).min(1.0);
+        at += (centre(next) - centre(member.tile)) * done * 0.35 * glide;
     }
     at
 }
@@ -193,21 +210,17 @@ fn drawn_at(
 type MarkedGroup = (
     &'static Group,
     &'static Line,
+    &'static mut Drawn,
     &'static Children,
     &'static mut Sprite,
     &'static mut Transform,
     &'static mut Visibility,
 );
 
-/// The danger ring or the ship under a group's disc.
-type MarkerPart = (
-    &'static mut Visibility,
-    &'static mut Sprite,
-    &'static mut Transform,
-    Has<DangerRing>,
-);
+/// The danger ring round a group's badge.
+type MarkerPart = (&'static mut Visibility, &'static mut Sprite);
 
-type PartFilter = (Or<(With<DangerRing>, With<ShipMark>)>, Without<GroupMarker>);
+type PartFilter = (With<DangerRing>, Without<GroupMarker>);
 
 #[allow(clippy::too_many_arguments)]
 fn place_groups(
@@ -228,11 +241,14 @@ fn place_groups(
     let sight = watcher
         .0
         .and_then(|id| sights.iter().find(|(r, _)| r.id == id).map(|(_, s)| s));
-    let size = marker_size(*view);
+    let badge = marker_size(*view) * BADGE;
     let overstep = fixed.overstep_fraction();
-    for (group, line, children, mut sprite, mut transform, mut visibility) in &mut groups {
+    for (group, line, mut drawn, children, mut sprite, mut transform, mut visibility) in &mut groups
+    {
+        let at = member_at(group, group.lead, line, &game, &board, &tuning, overstep);
+        drawn.0 = at;
         let shown =
-            Some(group.rival) == watcher.0 || sight.is_none_or(|s| s.sees(&board, group.tile));
+            Some(group.rival) == watcher.0 || sight.is_none_or(|s| s.sees(&board, group.tile()));
         *visibility = if shown {
             Visibility::Inherited
         } else {
@@ -241,48 +257,34 @@ fn place_groups(
         if !shown {
             continue;
         }
-        let at = drawn_at(group, line, &game, &board, &tuning, overstep);
-        transform.translation = view.project(at).extend(Z_MARKERS + view.depth(at));
+        transform.translation =
+            (view.project(at) + Vec2::Y * view.badge_rise()).extend(Z_BADGE + view.depth(at));
         sprite.color = rival_colour(group.rival);
-        sprite.custom_size = Some(Vec2::splat(size * DISC));
+        sprite.custom_size = Some(Vec2::splat(badge));
         let trapped = is_trapped(&board, group, tuning.trapped_room, |t| {
             Some(group.rival) == watcher.0 || sight.is_none_or(|s| s.sees(&board, t))
         });
-        let doing = activity(&board, group, line);
-        let afloat = matches!(doing, Activity::Afloat | Activity::BuildingShip)
-            || matches!(board.ground(group.tile), Ground::Lake(_));
         for &child in children {
             if let Ok(mut text) = texts.get_mut(child) {
-                text.0 = group.size.to_string();
+                text.0 = group.size().to_string();
             }
-            if let Ok((mut vis, mut sprite, mut transform, danger)) = parts.get_mut(child) {
-                if danger {
-                    *vis = if trapped {
-                        Visibility::Inherited
-                    } else {
-                        Visibility::Hidden
-                    };
-                    sprite.custom_size = Some(Vec2::splat(size * 1.5));
+            if let Ok((mut vis, mut sprite)) = parts.get_mut(child) {
+                *vis = if trapped {
+                    Visibility::Inherited
                 } else {
-                    *vis = if afloat {
-                        Visibility::Inherited
-                    } else {
-                        Visibility::Hidden
-                    };
-                    sprite.custom_size = Some(Vec2::new(size * 1.3, size * 0.45));
-                    transform.translation.y = -size * 0.35;
-                }
+                    Visibility::Hidden
+                };
+                sprite.custom_size = Some(Vec2::splat(badge * 1.6));
             }
         }
     }
 }
 
-type PlacedGroup = (&'static Group, &'static Transform);
-
+/// The selected group's ring: on the ground round its lead.
 fn place_selection(
     view: Res<BoardView>,
     selection: Res<Selection>,
-    groups: Query<PlacedGroup, (With<GroupMarker>, Without<SelectionRing>)>,
+    groups: Query<(&Group, &Drawn), With<GroupMarker>>,
     mut rings: Query<(&mut Transform, &mut Sprite, &mut Visibility), With<SelectionRing>>,
 ) {
     let selected = selection
@@ -290,9 +292,14 @@ fn place_selection(
         .and_then(|id| groups.iter().find(|(g, _)| g.id == id));
     for (mut transform, mut sprite, mut visibility) in &mut rings {
         match selected {
-            Some((_, at)) => {
-                transform.translation = at.translation - Vec3::Z * 0.0005;
-                sprite.custom_size = Some(Vec2::splat(marker_size(*view) * 1.25));
+            Some((_, drawn)) => {
+                // Under every upright thing.
+                transform.translation = view.project(drawn.0).extend(Z_UPRIGHT - 0.05);
+                let width = match *view {
+                    BoardView::Isometric => ISO * 1.5,
+                    BoardView::TopDown => crate::view::TILE * 1.1,
+                };
+                sprite.custom_size = Some(Vec2::new(width, width * 0.5));
                 *visibility = Visibility::Inherited;
             }
             None => *visibility = Visibility::Hidden,
@@ -300,10 +307,20 @@ fn place_selection(
     }
 }
 
+/// How high flat marks lie on the plane: on the ground seen from above, over
+/// the trees in the isometric view.
+fn flat_z(view: BoardView, z: f32) -> f32 {
+    match view {
+        BoardView::TopDown => z,
+        BoardView::Isometric => Z_OVER + z,
+    }
+}
+
 /// What the dots show: each of the player's lines, and the line being drawn
 /// with whether each tile is known to be blocked.
 #[derive(Default, PartialEq)]
 struct Dots {
+    view: BoardView,
     lines: Vec<(GroupId, bool, Vec<Tile>)>,
     draft: Vec<(Tile, bool)>,
 }
@@ -314,6 +331,7 @@ struct Dots {
 fn draw_lines(
     mut commands: Commands,
     mut shown: Local<Dots>,
+    view: Res<BoardView>,
     shapes: Res<Shapes>,
     watcher: Res<Watcher>,
     selection: Res<Selection>,
@@ -349,7 +367,11 @@ fn draw_lines(
             (tile, blocked)
         })
         .collect();
-    let wanted = Dots { lines, draft };
+    let wanted = Dots {
+        view: *view,
+        lines,
+        draft,
+    };
     // A new board has a new plane: the old dots went with the old one.
     if wanted == *shown
         && !dots.is_empty() == (!wanted.lines.is_empty() || !wanted.draft.is_empty())
@@ -369,7 +391,7 @@ fn draw_lines(
                 custom_size: Some(Vec2::splat(size)),
                 ..default()
             },
-            Transform::from_translation(on_plane(at, 0.3)),
+            Transform::from_translation(on_plane(at, flat_z(*view, 0.3))),
         ));
     };
     for (_, selected, tiles) in &wanted.lines {
@@ -392,6 +414,7 @@ fn draw_lines(
 }
 
 fn place_hover(
+    view: Res<BoardView>,
     hover: Res<Hover>,
     mut frames: Query<(&mut Transform, &mut Visibility), With<HoverFrame>>,
 ) {
@@ -399,7 +422,7 @@ fn place_hover(
         match hover.0 {
             Some(tile) => {
                 let at = Vec2::new(tile.x as f32 + 0.5, tile.y as f32 + 0.5);
-                transform.translation = on_plane(at, 0.5);
+                transform.translation = on_plane(at, flat_z(*view, 0.5));
                 *visibility = Visibility::Inherited;
             }
             None => *visibility = Visibility::Hidden,
@@ -422,7 +445,12 @@ fn place_names(
         .and_then(|id| sights.iter().find(|(r, _)| r.id == id).map(|(_, s)| s));
     for (name, mut transform, mut visibility) in &mut names {
         let at = Vec2::new(name.0.x as f32 + 0.5, name.0.y as f32 + 0.5);
-        transform.translation = view.project(at).extend(Z_LABELS);
+        // In the isometric view, on the water under boats and Waldleute.
+        let z = match *view {
+            BoardView::TopDown => Z_LABEL,
+            BoardView::Isometric => Z_GLINT + 0.5,
+        };
+        transform.translation = view.project(at).extend(z);
         let seen = sight.is_none_or(|s| s.has_seen(&board, name.0));
         *visibility = if seen {
             Visibility::Inherited

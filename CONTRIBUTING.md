@@ -86,18 +86,30 @@ Check the affected behavior manually in a game:
 
 - The start menu leads to the setup; each board, two to four rivals, and each
   length can be chosen, and «Spiel beginnen» starts on the chosen board.
-- Pressing on one of your groups selects it; dragging draws a line of straight
-  steps that follows the pointer, no longer than the group's limit, and moving
-  back takes it back. Releasing sends the group; a click beside the group draws
-  from the selected group. Right click or X stops it.
-- The group cuts tile by tile; its trail stays open behind it and the sapling
-  marks the tile that grows back next. A group of four cuts visibly faster.
-- A line onto another of your groups merges them; T splits the selected group.
+- Pressing on any of your Waldleute (or its group's badge) selects the group;
+  dragging draws a line from that Waldmensch that follows the pointer, a
+  diagonal counting as one tile, no longer than the group's limit, and moving
+  back takes it back. Releasing sends it, and it leads. A click beside the group
+  sends it the fastest way there, no further than its limit; dragging from
+  beside it draws from its lead. A line into another rival's margin goes round
+  it when it can. Right click or X stops it.
+- The lead cuts tile by tile and the others follow along the clearing, never far
+  apart; a group of four cuts visibly faster. When the line is done they gather
+  round its end, one to a tile, and after eight seconds still the trail behind
+  grows back tile by tile; the sapling marks the tile that grows back next. A ring
+  drawn in two lines with a short pause between still closes.
+- Cutting next to another of your clearings merges the two groups; T splits the
+  selected group and the half at the back stays behind.
 - Forest next to another rival's trail is tinged red and cannot be cut; a line
   into it stops short.
 - V switches between top-down and isometric at any time, even while a group is
-  cutting: every group stays on its tile, its line unchanged, and picking tiles
-  works the same in both.
+  cutting: every Waldmensch stays on its tile, the line unchanged, and picking
+  tiles works the same in both. Both views show every Waldmensch and a badge with
+  the group's size; from above, trees show as treetops.
+- In the isometric view, trees stand in the forest and turn see-through in front
+  of open ground. Whoever cuts swings an axe; Waldleute wade in rivers and sit in
+  a boat on a lake. A ring round another rival's clearing takes its Waldleute
+  into your group that closed it; those in a river stay free.
 - Black is unexplored, fog keeps the waters; other rivals show only near your
   groups. Wading into a river and building a ship on a lake (Hütten) cost trees.
 - A ring closing round a group flashes the enclosed part and the ring, and the

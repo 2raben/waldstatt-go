@@ -4,13 +4,15 @@
 //! A game is its board, its seed and the commands of each step; given the
 //! same three it ends the same way.
 
+use std::collections::BTreeSet;
+
 use bevy::prelude::*;
 
-use super::board::{Board, MAX_RIVALS, RivalId, Tile};
+use super::board::{Board, Ground, MAX_RIVALS, RivalId, Tile};
 use super::commands::Controls;
 use super::enclosure::Enclosures;
 use super::group::{Group, GroupId, Line, Trail};
-use super::rng::Rng;
+use super::rng::{Rng, mix};
 use super::sight::Sight;
 use super::tuning::Tuning;
 
@@ -32,10 +34,8 @@ pub enum Seat {
 pub struct Rival {
     pub id: RivalId,
     pub seat: Seat,
-    /// Where its first Waldleute were placed round.
+    /// Where its first Waldmensch was placed.
     pub home: Tile,
-    /// The group that receives its next Waldmensch; the largest if none.
-    pub receiver: Option<GroupId>,
     /// Whether it has lost all its Waldleute.
     pub out: bool,
 }
@@ -66,7 +66,11 @@ pub enum GameEvent {
         step: u64,
         by: RivalId,
         from: RivalId,
+        /// The group the Waldleute were taken from.
         group: GroupId,
+        /// The encloser's group they joined.
+        into: GroupId,
+        /// Waldleute taken.
         size: u32,
         /// The enclosed part.
         part: Vec<Tile>,
@@ -189,6 +193,9 @@ pub fn start_game(world: &mut World, setup: GameSetup) {
     rng.shuffle(&mut order);
     let placements =
         placements.unwrap_or_else(|| place_rivals(&board, &tuning, seats.len(), &mut rng));
+    for tile in placements.iter().flatten() {
+        board.set_open(*tile, None);
+    }
 
     let mut game = Game {
         seed,
@@ -207,16 +214,7 @@ pub fn start_game(world: &mut World, setup: GameSetup) {
         for &tile in &tiles {
             board.set_open(tile, Some(id));
             world.spawn((
-                Group {
-                    id: game.next_group_id(),
-                    rival: id,
-                    size: 1,
-                    trees: 0,
-                    tile,
-                    from: tile,
-                    entered: 0,
-                    progress: 0,
-                },
+                Group::new(game.next_group_id(), id, tile),
                 Trail(std::iter::once((tile, 0)).collect()),
                 Line::default(),
             ));
@@ -228,7 +226,6 @@ pub fn start_game(world: &mut World, setup: GameSetup) {
                 id,
                 seat,
                 home: tiles.first().copied().unwrap_or_default(),
-                receiver: None,
                 out: tiles.is_empty(),
             },
             sight,
@@ -239,117 +236,86 @@ pub fn start_game(world: &mut World, setup: GameSetup) {
     world.insert_resource(game);
 }
 
-/// Spreads the rivals' homes over the board's largest land region, one per
-/// quarter, and places each rival's first Waldleute round its home.
+/// Places each rival's first Waldleute at random over the board, one rival
+/// after the other, each a group of one.
 fn place_rivals(board: &Board, tuning: &Tuning, rivals: usize, rng: &mut Rng) -> Vec<Vec<Tile>> {
-    let (w, h) = (board.width, board.height);
-    let main = board.largest_region();
-    // The first two take opposite quarters.
-    let mut spots = [
-        (w / 4, h / 4),
-        (3 * w / 4, 3 * h / 4),
-        (3 * w / 4, h / 4),
-        (w / 4, 3 * h / 4),
-    ];
-    if rng.below(2) == 1 {
-        for spot in &mut spots {
-            spot.0 = w - 1 - spot.0;
-        }
-    }
-    let jitter = w.min(h) / 10;
-    let mut placed: Vec<Vec<Tile>> = Vec::new();
-    for &(x, y) in spots.iter().take(rivals) {
-        let wanted = Tile::new(
-            x + rng.between(-jitter, jitter),
-            y + rng.between(-jitter, jitter),
-        );
-        let free = |tile: Tile, placed: &[Vec<Tile>], own: &[Tile]| {
-            board.region(tile) == main
-                && !own.contains(&tile)
-                && placed
-                    .iter()
-                    .flatten()
-                    .all(|other| other.chebyshev(tile) > tuning.start_margin)
-        };
-        let Some(home) = nearest(board, wanted, |t| free(t, &placed, &[])) else {
-            placed.push(Vec::new());
-            continue;
-        };
-        let radius = tuning.placing_radius;
-        let mut own = Vec::new();
-        for _ in 0..400 {
-            if own.len() as u32 >= tuning.start_waldleute {
-                break;
-            }
-            let (dx, dy) = (rng.between(-radius, radius), rng.between(-radius, radius));
-            let tile = Tile::new(home.x + dx, home.y + dy);
-            if dx * dx + dy * dy <= radius * radius && free(tile, &placed, &own) {
+    let mut board = board.clone();
+    let mut placed = vec![Vec::new(); rivals];
+    for _ in 0..tuning.start_waldleute {
+        for (i, own) in placed.iter_mut().enumerate() {
+            if let Some(tile) = random_tile(&board, rng, |_| true) {
+                board.set_open(tile, Some(RivalId(i as u8)));
                 own.push(tile);
             }
         }
-        while (own.len() as u32) < tuning.start_waldleute {
-            let Some(tile) = nearest(board, home, |t| free(t, &placed, &own)) else {
-                break;
-            };
-            own.push(tile);
-        }
-        placed.push(own);
     }
     placed
 }
 
-/// The nearest tile to `from`, ring by ring, that satisfies `wanted`.
-fn nearest(board: &Board, from: Tile, wanted: impl Fn(Tile) -> bool) -> Option<Tile> {
-    let reach = board.width.max(board.height);
-    for r in 0..=reach {
-        for dy in -r..=r {
-            for dx in -r..=r {
-                if dx.abs() != r && dy.abs() != r {
-                    continue;
-                }
-                let tile = Tile::new(from.x + dx, from.y + dy);
-                if board.contains(tile) && wanted(tile) {
-                    return Some(tile);
-                }
-            }
+/// A random forest tile with no open tile and no Waldmensch round it, where
+/// `also` holds; `None` if a few thousand tries find none.
+fn random_tile(board: &Board, rng: &mut Rng, also: impl Fn(Tile) -> bool) -> Option<Tile> {
+    for _ in 0..4000 {
+        let tile = Tile::new(
+            rng.below(board.width as u32) as i32,
+            rng.below(board.height as u32) as i32,
+        );
+        let clear = std::iter::once(tile)
+            .chain(tile.neighbours8())
+            .all(|t| board.open(t).is_none());
+        if board.ground(tile) == Ground::Land && clear && also(tile) {
+            return Some(tile);
         }
     }
     None
 }
 
-/// Every interval, each rival still in the game gets one more Waldmensch, who
-/// joins its chosen group, or its largest.
+/// Every interval, each rival still in the game gets one more Waldmensch: a
+/// group of one on a random forest tile of the board, away from every
+/// clearing and Waldmensch and outside every other rival's rings.
 pub fn grant_waldleute(
+    mut commands: Commands,
     mut game: ResMut<Game>,
+    mut board: ResMut<Board>,
     tuning: Res<Tuning>,
-    rivals: Query<&Rival>,
-    mut groups: Query<&mut Group>,
+    rivals: Query<(&Rival, &Enclosures)>,
+    groups: Query<&Group>,
 ) {
     if game.step < game.next_waldmensch {
         return;
     }
     game.next_waldmensch += tuning.waldmensch_interval;
+    let mut rng = Rng::new(game.seed ^ mix(game.step));
+    let standing: BTreeSet<Tile> = groups
+        .iter()
+        .flat_map(|g| g.tiles().collect::<Vec<_>>())
+        .collect();
     for rival in game.order.clone() {
-        let Some(owner) = rivals.iter().find(|r| r.id == rival && !r.out) else {
+        if !rivals.iter().any(|(r, _)| r.id == rival && !r.out) {
+            continue;
+        }
+        let free = |tile: Tile| {
+            !std::iter::once(tile)
+                .chain(tile.neighbours8())
+                .any(|t| standing.contains(&t))
+                && rivals.iter().all(|(other, rings)| {
+                    other.id == rival || rings.0.as_ref().is_none_or(|p| !p.encloses(&board, tile))
+                })
+        };
+        let Some(tile) = random_tile(&board, &mut rng, free) else {
             continue;
         };
-        let chosen = owner
-            .receiver
-            .filter(|&id| groups.iter().any(|g| g.id == id && g.rival == rival));
-        let target = groups
-            .iter_mut()
-            .filter(|g| g.rival == rival)
-            .filter(|g| chosen.is_none_or(|id| g.id == id))
-            .max_by_key(|g| (g.size, std::cmp::Reverse(g.id)));
-        if let Some(mut group) = target {
-            group.size += 1;
-            let event = GameEvent::Joined {
-                step: game.step,
-                rival,
-                group: group.id,
-            };
-            game.events.push(event);
-        }
+        board.set_open(tile, Some(rival));
+        let id = game.next_group_id();
+        let step = game.step;
+        let mut group = Group::new(id, rival, tile);
+        group.members[0].entered = step;
+        commands.spawn((group, Trail([(tile, step)].into()), Line::default()));
+        game.events.push(GameEvent::Joined {
+            step,
+            rival,
+            group: id,
+        });
     }
 }
 
@@ -364,7 +330,7 @@ pub fn standings<'a>(
             let own = groups.clone().filter(|g| g.rival == rival);
             Standing {
                 rival,
-                waldleute: own.clone().map(|g| g.size).sum(),
+                waldleute: own.clone().map(|g| g.size()).sum(),
                 trees: own.clone().map(|g| g.trees).sum(),
                 groups: own.count(),
             }

@@ -2,6 +2,7 @@
 tags: [adr]
 status: accepted
 date: 2026-11-20
+amended-by: [0007-spread-each-group-over-the-tiles-of-its-waldleute.md]
 sources:
   - src/rules/group.rs
   - src/rules/tuning.rs
@@ -13,6 +14,10 @@ sources:
 ---
 
 # 0001 — Move groups tile by tile on the board, whichever way it is viewed
+
+Amended by [ADR 0007](0007-spread-each-group-over-the-tiles-of-its-waldleute.md):
+each Waldmensch of a group now stands on its own tile and moves tile by tile;
+everything below still holds for each of them.
 
 ## Context
 
@@ -63,9 +68,11 @@ As implemented, [src/rules/group.rs](../../../src/rules/group.rs) holds a group'
 tile, the tile it came from, the step it entered, and its integer progress; the
 costs and speeds are in [src/rules/tuning.rs](../../../src/rules/tuning.rs).
 [src/view.rs](../../../src/view.rs) draws the isometric board as the top-down one
-turned 45° and squashed to half its height: the ground image, lines and
+turned 45° and squashed to half its height: the ground, lines and
 highlights are children of one plane whose transform is the view, and upright
-markers are placed with the projection and drawn back to front by row and column.
+things (discs, and in the isometric view trees, Waldleute and boats, see
+[ADR 0006](0006-paint-the-isometric-sprites-in-code.md)) are placed with the
+projection and drawn back to front by row and column.
 A test maps every tile of a 100 × 100 board to its centre and back in both views.
 
 ## Consequences

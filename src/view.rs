@@ -19,6 +19,15 @@ pub const TILE: f32 = 16.0;
 /// Half the width of a tile's diamond in the isometric view; it is half as high.
 pub const ISO: f32 = 16.0;
 
+// Draw heights, bottom to top: the ground at 0, glints on the water, upright
+// things (discs, trees, Waldleute, boats) sorted by [`BoardView::depth`]
+// above `Z_UPRIGHT`, marks drawn over the trees, badges and names.
+pub const Z_GLINT: f32 = 1.0;
+pub const Z_UPRIGHT: f32 = 10.0;
+pub const Z_OVER: f32 = 25.0;
+pub const Z_BADGE: f32 = 30.0;
+pub const Z_LABEL: f32 = 40.0;
+
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BoardView {
     #[default]
@@ -39,6 +48,19 @@ impl BoardView {
             BoardView::TopDown => "von oben",
             BoardView::Isometric => "isometrisch",
         }
+    }
+
+    /// How much larger than painted the Waldleute and boats are drawn.
+    pub fn figure_scale(self) -> f32 {
+        match self {
+            BoardView::TopDown => 0.75,
+            BoardView::Isometric => 1.35,
+        }
+    }
+
+    /// How high a group's badge floats over its lead's feet, in world units.
+    pub fn badge_rise(self) -> f32 {
+        21.0 * self.figure_scale()
     }
 
     /// World position of a point in tile coordinates; a tile's centre is
