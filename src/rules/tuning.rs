@@ -45,6 +45,9 @@ pub struct Tuning {
     /// A group that can reach fewer tiles than this by cutting is shown as
     /// trapped, and computer rivals try to escape with it.
     pub trapped_room: usize,
+    /// A group that can reach fewer tiles than this by cutting, hemmed in by
+    /// other rivals, water or the board's edge, cannot split.
+    pub split_room: usize,
 }
 
 impl Default for Tuning {
@@ -68,6 +71,7 @@ impl Default for Tuning {
             regrow_steps: 64,
             view_radius: 7,
             trapped_room: 120,
+            split_room: 120,
         }
     }
 }

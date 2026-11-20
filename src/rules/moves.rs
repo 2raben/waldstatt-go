@@ -5,8 +5,9 @@
 //!
 //! 1. The lead works along the line and enters its next tile when the work
 //!    reaches the tile's cost; a bigger group cuts faster.
-//! 2. A lead that cuts a tile touching another clearing of its rival, or walks
-//!    into one, merges that group into its own.
+//! 2. A lead that cuts a tile joining its clearing to another clearing of its
+//!    rival, or walks into one, merges that group into its own. Clearings that
+//!    already touch, as the two halves of a split do, are not joined by a cut.
 //! 3. While the group has a line, the others follow the lead over the clearing
 //!    and the water it crossed, each at most [`Tuning::gap`] tiles per place in
 //!    the file behind it, cutting a shortcut only where it is much shorter.
@@ -324,7 +325,8 @@ fn lead_step(
 }
 
 /// Merges into group `i` every other group of its rival whose clearing the
-/// lead just joined: by cutting a tile next to it, or by walking into it.
+/// lead just joined: by cutting a tile next to it that its own clearing did
+/// not already touch, or by walking into it.
 #[allow(clippy::too_many_arguments)]
 fn merge_touching(
     board: &Board,
@@ -343,11 +345,24 @@ fn merge_touching(
         _ => return,
     };
     let rival = bodies[i].group.rival;
-    let joined: BTreeSet<usize> = touched
+    let mut joined: BTreeSet<usize> = touched
         .iter()
         .filter_map(|&t| owners.other(board, t, i))
         .filter(|&j| !bodies[j].gone)
         .collect();
+    if kind == Move::Cut && !joined.is_empty() {
+        // The halves of a split still touch: walking off cuts them no closer.
+        let body = &bodies[i];
+        let before: BTreeSet<usize> = body
+            .trail
+            .tiles()
+            .chain(body.group.tiles())
+            .filter(|&t| t != tile)
+            .flat_map(|t| board.steps(rival, t))
+            .filter_map(|t| owners.other(board, t, i))
+            .collect();
+        joined.retain(|j| !before.contains(j));
+    }
     for j in joined {
         owners.merge(j, i);
         let (into, from) = pair(bodies, i, j);

@@ -6,7 +6,7 @@ use bevy::prelude::*;
 
 use crate::ground::Watcher;
 use crate::input::Selection;
-use crate::rules::enclosure::is_trapped;
+use crate::rules::enclosure::{can_split, is_trapped};
 use crate::rules::game::{GameEvent, RIVAL_NAMES, STEPS_PER_SECOND};
 use crate::rules::group::activity;
 use crate::rules::sight::Sight;
@@ -15,16 +15,20 @@ use crate::screens::{Screen, time_left};
 use crate::style::{clock, palette, rival_colour, text};
 
 /// The keys, also shown in the pause menu.
-pub const HELP: &str = "Linke Maustaste auf einen Waldmenschen: Gruppe wählen und von ihm \
-                        aus Linie ziehen · Klick daneben: schnellster Weg dorthin · \
-                        Rechtsklick oder X: anhalten · Tab: nächste Gruppe · T: teilen · \
-                        Lichtungen, die sich berühren: Gruppen vereinen · V: Ansicht wechseln · \
-                        Leertaste: zur Gruppe · WASD, Pfeile, mittlere Maustaste: schieben · \
-                        Mausrad, +/−: Zoom · Esc: Pause";
+pub const HELP: &str = "Klick auf eine Gruppe oder ihre Lichtung: Gruppe wählen · \
+                        von dort ziehen: Linie ziehen · Klick daneben: schnellster Weg dorthin · \
+                        Doppelklick auf eine andere Gruppe: die gewählte geht zu ihr, sie vereinen sich · \
+                        Rechtsklick auf eine Gruppe oder T: teilen · rechts ziehen: teilen und \
+                        eine Hälfte losschicken · Rechtsklick daneben oder X: anhalten · \
+                        Tab: nächste Gruppe · V: Ansicht wechseln · Leertaste: zur Gruppe · \
+                        WASD, Pfeile, mittlere Maustaste: schieben · Mausrad, +/−: Zoom · \
+                        Touchscreen: tippen wie klicken, lange drücken wie Rechtsklick, \
+                        zwei Finger schieben und zoomen · Esc: Pause";
 
 /// The reminder during a game; Esc shows all keys.
-const SHORT_HELP: &str = "Ziehen: Linie · Klick: hingehen · Rechtsklick: anhalten · Tab: nächste Gruppe · \
-                          T: teilen · V: Ansicht · Esc: Pause und alle Tasten";
+const SHORT_HELP: &str = "Klick: wählen oder hingehen · Ziehen: Linie · Doppelklick: zur Gruppe · \
+                          Rechtsklick: teilen · Tab: nächste Gruppe · V: Ansicht · \
+                          Esc: Pause und alle Tasten";
 
 /// Notices kept on screen.
 const NOTICES: usize = 6;
@@ -319,6 +323,7 @@ fn show_group(
     board: Option<Res<Board>>,
     selection: Res<Selection>,
     tuning: Res<Tuning>,
+    sights: Query<(&Rival, &Sight)>,
     groups: Query<(&Group, &Trail, &Line)>,
     mut panel: Query<&mut Text, With<GroupPanel>>,
 ) {
@@ -344,6 +349,11 @@ fn show_group(
             );
             if group.regrows.is_some() {
                 out.push_str("\nDer markierte Setzling wächst als Nächstes wieder zu.");
+            }
+            let sight = sights.iter().find(|(r, _)| r.id == group.rival);
+            let sees = |t| sight.is_some_and(|(_, s)| s.sees(&board, t));
+            if group.size() >= 2 && !can_split(&board, group, tuning.split_room, sees) {
+                out.push_str("\nZu eng zum Teilen.");
             }
             if group.size() > tuning.ship_capacity {
                 out.push_str(&format!(

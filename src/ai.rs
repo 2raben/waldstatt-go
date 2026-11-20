@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use bevy::prelude::*;
 
-use crate::rules::enclosure::{is_trapped, room};
+use crate::rules::enclosure::{can_split, is_trapped, room};
 use crate::rules::game::game_running;
 use crate::rules::sight::Sight;
 use crate::rules::{
@@ -113,6 +113,13 @@ impl View<'_> {
 
     fn trapped(&self, group: &Group) -> bool {
         is_trapped(self.board, group, self.tuning.trapped_room, |t| {
+            self.sight.sees(self.board, t)
+        })
+    }
+
+    /// Whether the group has room to split, as far as the rival sees.
+    fn can_split(&self, group: &Group) -> bool {
+        can_split(self.board, group, self.tuning.split_room, |t| {
             self.sight.sees(self.board, t)
         })
     }
@@ -307,8 +314,8 @@ fn decide(
         let calm = !enemies
             .iter()
             .any(|e| e.tile().chebyshev(group.tile()) <= HUNT_RANGE);
-        if group.size() >= 5 && calm {
-            orders.push(Order::Split { group: group.id });
+        if group.size() >= 5 && calm && view.can_split(group) {
+            orders.push(Order::split(group.id));
             continue;
         }
         if let Some(way) = explore(view, game, group, own, i) {

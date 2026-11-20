@@ -20,6 +20,11 @@
         width: 100%;
         height: 100%;
         outline: none;
+        /* Fingers play: no scrolling, zooming, selecting or menus by touch. */
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
       }
       #status {
         position: absolute;

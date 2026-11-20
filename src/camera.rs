@@ -1,9 +1,11 @@
-//! The camera: an orthographic view of the board that pans and zooms, centres
+//! The camera: an orthographic view of the board that pans and zooms (with
+//! two fingers on a touch screen, too), centres
 //! on the selected group, and keeps the same tile in the middle when the view
 //! switches between top-down and isometric.
 
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::input::mouse::AccumulatedMouseScroll;
+use bevy::input::touch::Touches;
 use bevy::prelude::*;
 
 use crate::ground::Watcher;
@@ -100,6 +102,7 @@ fn pan_and_zoom(
     buttons: Res<ButtonInput<MouseButton>>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
+    touches: Res<Touches>,
     view: Res<BoardView>,
     board: Option<Res<Board>>,
     mut cameras: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
@@ -120,6 +123,17 @@ fn pan_and_zoom(
         if buttons.pressed(MouseButton::Middle) {
             at += Vec2::new(-motion.delta.x, motion.delta.y) * zoom;
         }
+        // Two fingers drag the board along and pinch to zoom.
+        let mut pinch = 1.0;
+        if let [a, b] = touches.iter().collect::<Vec<_>>()[..] {
+            let delta = (a.delta() + b.delta()) / 2.0;
+            at += Vec2::new(-delta.x, delta.y) * zoom;
+            let before = a.previous_position().distance(b.previous_position());
+            let now = a.position().distance(b.position());
+            if before > 1.0 && now > 1.0 {
+                pinch = before / now;
+            }
+        }
         // Keep the middle of the view on the board.
         let tile = view.unproject(at);
         let clamped = tile.clamp(
@@ -135,8 +149,11 @@ fn pan_and_zoom(
         if keys.any_just_pressed([KeyCode::Minus, KeyCode::NumpadSubtract]) {
             wheel -= 1.0;
         }
-        if wheel != 0.0 {
-            set_zoom(&mut projection, zoom * 0.88f32.powf(wheel.clamp(-3.0, 3.0)));
+        if wheel != 0.0 || pinch != 1.0 {
+            set_zoom(
+                &mut projection,
+                zoom * pinch * 0.88f32.powf(wheel.clamp(-3.0, 3.0)),
+            );
         }
     }
 }

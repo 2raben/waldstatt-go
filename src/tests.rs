@@ -427,17 +427,135 @@ fn gathering_stops_at_another_clearing_of_the_same_rival() {
 
 #[test]
 fn splitting_sends_the_rear_half_away() {
-    let f = field(30, 1);
+    let f = field(30, 5);
     let mut sim = Sim::new(setup(&rows(&f), vec![vec![(4, 0)]]));
     sim.add_members(FIRST, &[(3, 0), (2, 0), (1, 0), (0, 0)]);
     sim.set_group(FIRST, |g| g.trees = 10);
-    sim.send(A, Order::Split { group: FIRST });
+    sim.send(A, Order::split(FIRST));
     sim.steps(1);
     let groups = sim.groups();
     assert_eq!(groups.len(), 2);
     assert_eq!((groups[0].0.size(), groups[1].0.size()), (3, 2));
     assert_eq!((groups[0].0.trees, groups[1].0.trees), (6, 4));
     assert_eq!(tiles_of(&groups[1].0), vec![(0, 0), (1, 0)]);
+}
+
+#[test]
+fn a_split_with_a_line_sends_the_half_pressed_along_it() {
+    let f = field(30, 9);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(4, 4)]]));
+    sim.add_members(FIRST, &[(3, 4), (2, 4), (1, 4), (0, 4)]);
+    // From the Waldmensch at the back, down and away.
+    let tiles: Vec<Tile> = (5..=8).map(|y| Tile::new(0, y)).collect();
+    sim.send(
+        A,
+        Order::Split {
+            group: FIRST,
+            from: Some(Tile::new(0, 4)),
+            tiles: tiles.clone(),
+        },
+    );
+    sim.steps(1);
+    let groups = sim.groups();
+    assert_eq!(groups.len(), 2);
+    let (new, _, line) = &groups[1];
+    assert_eq!(tiles_of(new), vec![(0, 4), (1, 4)], "the rear half goes");
+    assert_eq!(new.tile(), Tile::new(0, 4), "led by the one pressed");
+    assert_eq!(line.0, tiles);
+    assert_eq!(groups[0].0.tile(), Tile::new(4, 4), "the lead stays");
+    sim.until_at(groups[1].0.id, (0, 8), 3000);
+}
+
+#[test]
+fn a_split_with_a_line_from_the_lead_leaves_the_rest_behind() {
+    let f = field(30, 9);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(4, 4)]]));
+    sim.add_members(FIRST, &[(3, 4), (2, 4), (1, 4)]);
+    sim.line(A, FIRST, &[(5, 4), (6, 4)]);
+    sim.send(
+        A,
+        Order::Split {
+            group: FIRST,
+            from: Some(Tile::new(4, 4)),
+            tiles: vec![Tile::new(4, 3), Tile::new(4, 2)],
+        },
+    );
+    sim.steps(1);
+    let groups = sim.groups();
+    let (stay, _, stay_line) = &groups[0];
+    let (new, _, new_line) = &groups[1];
+    assert_eq!(tiles_of(new), vec![(3, 4), (4, 4)]);
+    assert_eq!(tiles_of(stay), vec![(1, 4), (2, 4)]);
+    assert_eq!(stay.tile(), Tile::new(2, 4), "the one nearest the old lead");
+    assert!(stay_line.0.is_empty(), "the rest wait where they are");
+    assert_eq!(new_line.0.len(), 2);
+}
+
+#[test]
+fn the_half_sent_away_does_not_merge_back_on_its_first_cut() {
+    let f = field(20, 12);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(4, 4)]]));
+    sim.add_members(FIRST, &[(3, 4)]);
+    // Cutting (3, 5) touches the other half's tile (4, 4).
+    let tiles: Vec<Tile> = (5..=8).map(|y| Tile::new(3, y)).collect();
+    sim.send(
+        A,
+        Order::Split {
+            group: FIRST,
+            from: Some(Tile::new(3, 4)),
+            tiles,
+        },
+    );
+    sim.steps(1);
+    let new = sim.groups()[1].0.id;
+    sim.until_at(new, (3, 8), 3000);
+    assert_eq!(sim.groups().len(), 2, "still two groups");
+    assert!(
+        !sim.game()
+            .events
+            .iter()
+            .any(|e| matches!(e, GameEvent::Merged { .. }))
+    );
+}
+
+#[test]
+fn a_group_hemmed_in_cannot_split() {
+    // The board's edge and a lake leave less room than a split needs.
+    let mut sim = Sim::new(setup(&["........~~", "........~~"], vec![vec![(4, 0)]]));
+    sim.add_members(FIRST, &[(3, 0), (2, 0)]);
+    sim.send(A, Order::split(FIRST));
+    sim.steps(1);
+    assert_eq!(sim.groups().len(), 1);
+    assert!(
+        !sim.game()
+            .events
+            .iter()
+            .any(|e| matches!(e, GameEvent::Split { .. }))
+    );
+}
+
+#[test]
+fn going_to_another_clearing_merges_the_groups() {
+    // A double click on the second group sends the first the fastest way there.
+    let f = field(30, 5);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 2), (8, 2)]]));
+    let from = sim.group(FIRST).tile();
+    sim.send(
+        A,
+        Order::Goto {
+            group: FIRST,
+            from,
+            to: Tile::new(8, 2),
+        },
+    );
+    for _ in 0..3000 {
+        sim.steps(1);
+        if sim.groups().len() == 1 {
+            break;
+        }
+    }
+    assert_eq!(sim.groups().len(), 1, "the groups merged");
+    assert_eq!(sim.groups()[0].0.size(), 2);
 }
 
 /// A 12 × 12 field where A has opened a ring round B's group at (5, 5),

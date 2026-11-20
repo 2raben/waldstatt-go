@@ -389,10 +389,17 @@ impl Paths {
 /// over its clearing and the water it crossed. Members that cannot be reached
 /// come last.
 pub fn file_order(board: &Board, group: &Group, trail: &Trail) -> Vec<usize> {
+    file_order_from(board, group, trail, group.lead)
+}
+
+/// The members of a group nearest first to its Waldmensch `first` over its
+/// clearing and the water it crossed, `first` first. Members that cannot be
+/// reached come last.
+fn file_order_from(board: &Board, group: &Group, trail: &Trail, first: usize) -> Vec<usize> {
     let open: BTreeSet<Tile> = trail.tiles().chain(group.way.iter().copied()).collect();
     let wanted: BTreeSet<Tile> = group.tiles().collect();
     let paths = Paths::search(
-        &[group.tile()],
+        &[group.members[first].tile],
         |t| board.steps(group.rival, t),
         |t| open.contains(&t).then_some(1),
         |_| true,
@@ -401,7 +408,7 @@ pub fn file_order(board: &Board, group: &Group, trail: &Trail) -> Vec<usize> {
     );
     let mut order: Vec<usize> = (0..group.members.len()).collect();
     order.sort_by_key(|&i| {
-        let rank = if i == group.lead { 0 } else { 1 };
+        let rank = if i == first { 0 } else { 1 };
         (
             rank,
             paths.hops(group.members[i].tile).unwrap_or(u32::MAX),
@@ -411,30 +418,47 @@ pub fn file_order(board: &Board, group: &Group, trail: &Trail) -> Vec<usize> {
     order
 }
 
-/// Splits a group in two. The new group takes the half of the Waldleute
-/// furthest back from the lead (rounded down) and that share of the trees;
-/// each tile of the trail goes to the group whose Waldmensch stands nearest.
-/// The new group's lead is its Waldmensch nearest the old lead, and it gathers
-/// where that one stands.
+/// Splits a group in two. The new group takes half of the Waldleute (rounded
+/// down) and that share of the trees; each tile of the trail goes to the group
+/// whose Waldmensch stands nearest. Without `leader`, the half furthest back
+/// from the lead goes, led by its Waldmensch nearest the old lead. With
+/// `leader`, the half nearest the Waldmensch standing there goes, led by it;
+/// if that was the lead, the one nearest it of those staying leads them. Each
+/// group gathers where its lead stands.
 pub fn split_group(
     board: &Board,
     group: &mut Group,
     trail: &mut Trail,
     id: GroupId,
+    leader: Option<Tile>,
 ) -> Option<(Group, Trail)> {
     if group.size() < 2 {
         return None;
     }
-    let order = file_order(board, group, trail);
     let take = group.members.len() / 2;
-    let leaving: BTreeSet<usize> = order[order.len() - take..].iter().copied().collect();
-    let new_lead_index = order[order.len() - take];
+    let (leaving, new_lead_index, staying_lead) =
+        match leader.and_then(|tile| group.member_on(tile)) {
+            Some(first) => {
+                let order = file_order_from(board, group, trail, first);
+                let staying_lead = if order[..take].contains(&group.lead) {
+                    order[take]
+                } else {
+                    group.lead
+                };
+                (order[..take].to_vec(), first, staying_lead)
+            }
+            None => {
+                let order = file_order(board, group, trail);
+                let rear = order[order.len() - take..].to_vec();
+                (rear, order[order.len() - take], group.lead)
+            }
+        };
+    let leaving: BTreeSet<usize> = leaving.into_iter().collect();
     let trees = group.trees * take as u32 / group.size();
     group.trees -= trees;
-    let lead_tile = group.tile();
     let mut staying = Vec::new();
     let mut moving = Vec::new();
-    let mut new_lead = 0;
+    let (mut new_lead, mut old_lead) = (0, 0);
     for (i, member) in group.members.iter().enumerate() {
         if leaving.contains(&i) {
             if i == new_lead_index {
@@ -442,22 +466,24 @@ pub fn split_group(
             }
             moving.push(*member);
         } else {
+            if i == staying_lead {
+                old_lead = staying.len();
+            }
             staying.push(*member);
         }
     }
     group.members = staying;
-    group.lead = group
-        .members
-        .iter()
-        .position(|m| m.tile == lead_tile)
-        .unwrap_or(0);
+    if group.lead != staying_lead {
+        group.target = group.members[old_lead].tile;
+    }
+    group.lead = old_lead;
     let mut new = Group {
         id,
         rival: group.rival,
         trees,
         members: moving,
         lead: new_lead,
-        target: lead_tile,
+        target: group.target,
         still: 0,
         way: group.way.clone(),
         regrows: None,
@@ -601,7 +627,7 @@ mod tests {
         let mut trail = Trail((0..=9).map(|x| (Tile::new(x, 0), x as u64)).collect());
         let board = Board::from_rows(&[&".".repeat(12)]);
         let (new, new_trail) =
-            split_group(&board, &mut group, &mut trail, GroupId(1)).expect("splits");
+            split_group(&board, &mut group, &mut trail, GroupId(1), None).expect("splits");
         assert_eq!((group.size(), new.size()), (3, 2));
         assert_eq!((group.trees, new.trees), (6, 4));
         assert_eq!(group.tile(), Tile::new(9, 0), "the lead stays");
@@ -615,5 +641,26 @@ mod tests {
         assert_eq!(trail.0.len() + new_trail.0.len(), 10);
         assert!(new_trail.contains(Tile::new(0, 0)));
         assert!(trail.contains(Tile::new(9, 0)));
+    }
+
+    #[test]
+    fn splitting_from_a_waldmensch_sends_the_half_nearest_it() {
+        let mut group = group_at(Tile::new(9, 0), 5);
+        let mut trail = Trail((5..=9).map(|x| (Tile::new(x, 0), x as u64)).collect());
+        let board = Board::from_rows(&[&".".repeat(12)]);
+        let (new, _) = split_group(
+            &board,
+            &mut group,
+            &mut trail,
+            GroupId(1),
+            Some(Tile::new(9, 0)),
+        )
+        .expect("splits");
+        let mut leaving: Vec<i32> = new.tiles().map(|t| t.x).collect();
+        leaving.sort();
+        assert_eq!(leaving, vec![8, 9]);
+        assert_eq!(new.tile(), Tile::new(9, 0), "led by the one pressed");
+        assert_eq!(group.tile(), Tile::new(7, 0), "the nearest left leads");
+        assert_eq!(group.target, Tile::new(7, 0));
     }
 }
