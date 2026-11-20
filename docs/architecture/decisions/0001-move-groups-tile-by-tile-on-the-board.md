@@ -1,8 +1,13 @@
 ---
 tags: [adr]
-status: proposed
+status: accepted
 date: 2026-11-20
 sources:
+  - src/rules/group.rs
+  - src/rules/tuning.rs
+  - src/view.rs
+  - src/markers.rs
+  - src/input.rs
   - ../../pitches/rivalen-im-wald/pitch--rivalen-im-wald.md
   - 0002-keep-the-rules-headless-behind-rival-commands.md
 ---
@@ -51,12 +56,17 @@ play-test values in one tuning table. No rule uses floating-point positions.
 Presentation owns the view. A view resource, top-down or isometric, chooses how a
 tile is projected to a `Transform`, and the same projection, inverted, turns the
 pointer into a tile for drawing lines. Switching views changes only that resource
-and the drawing. Between steps, visuals interpolate a group's drawn position from
-the tile it left to the tile it is entering, as the template does with
-`PreviousPosition`. How each view is drawn and sorted is left to the change that
-adds the views.
+and the drawing. Between steps, visuals glide a group's disc from the tile it left
+to the tile it entered, as the template did with `PreviousPosition`.
 
-Accept this record when the board rules are implemented.
+As implemented, [src/rules/group.rs](../../../src/rules/group.rs) holds a group's
+tile, the tile it came from, the step it entered, and its integer progress; the
+costs and speeds are in [src/rules/tuning.rs](../../../src/rules/tuning.rs).
+[src/view.rs](../../../src/view.rs) draws the isometric board as the top-down one
+turned 45° and squashed to half its height: the ground image, lines and
+highlights are children of one plane whose transform is the view, and upright
+markers are placed with the projection and drawn back to front by row and column.
+A test maps every tile of a 100 × 100 board to its centre and back in both views.
 
 ## Consequences
 
@@ -75,10 +85,12 @@ Accept this record when the board rules are implemented.
 
 - Board rule tests step scripted groups and assert tiles and step counts; they
   pass headless without any view.
-- `rg -n "f32|f64|Vec2|Vec3" <board rules modules>` finds no position or progress
-  fields; review any hit.
-- `rg -n "Transform" <board rules modules>` finds nothing: only presentation code
-  writes transforms.
+- `rg -n "f32|f64|Vec2|Vec3" src/rules/` finds no position or progress fields;
+  the only hits are in `waters.rs`, which rasterizes the map data into tiles when
+  a board is built. Review any other hit.
+- `rg -n "Transform" src/rules/` finds nothing: only presentation code writes
+  transforms.
+- `cargo test --locked every_tile_maps_to_itself_and_back` passes.
 - In the running game, switching views mid-move leaves every group on the same
   tile and its line unchanged. This needs a manual check; the searches cannot show
   that a projection and its inverse agree.

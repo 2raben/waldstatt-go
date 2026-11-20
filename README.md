@@ -6,46 +6,73 @@ the waters of the [Waldstatt](https://2raben.github.io/waldstatt/); see the
 [game idea](docs/idea.md). Built with [Bevy](https://bevy.org) 0.20 for native
 apps and the browser.
 
-The game is not built yet: the first playable is shaped in the
-[Rivalen im Wald pitch](docs/pitches/rivalen-im-wald/pitch--rivalen-im-wald.md),
-and the code is still the starter platformer of the Bevy template
-(`2raben/template-bevy`) this repository was created from, with its tests,
-documentation structure, agent skills and [mise](https://mise.jdx.dev) tasks.
+The first playable implements the
+[Rivalen im Wald pitch](docs/pitches/rivalen-im-wald/pitch--rivalen-im-wald.md).
+The repository was created from the Bevy template (`2raben/template-bevy`), whose
+documentation structure, agent skills and [mise](https://mise.jdx.dev) tasks it
+keeps. All game text is German with Swiss spelling.
 
 ## What's inside
 
 | Path | Purpose |
 | --- | --- |
-| `src/` | The template's starter platformer, until the first pitch replaces it: headless simulation plus presentation plugins |
+| `src/rules/` | The rules, headless: board, groups, lines, trails, enclosing, water, sight, the game |
+| `src/ai.rs` | Computer rivals, playing through the same commands as the player |
+| `src/` (others) | Presentation: views, ground, markers, input, camera, menus, HUD |
+| `data/waters/` | The Waldstatt's water pages the boards are cut from, compiled in |
+| `assets/fonts/` | Fira Sans (SIL Open Font License), compiled in |
+| `web/` | The page of the browser build |
 | `docs/idea.md` | Game direction and longer-term possibilities |
 | `docs/pitches/` | Shaped feature proposals (Problem, Solution, Security, Rabbit Holes, No-Gos) |
 | `docs/architecture/` | Current structure and conventions, and [decision records](docs/architecture/decisions/README.md) |
 | `.agents/skills/` | Bevy 0.20 skills for coding agents; versions in `skills-lock.json` |
 | `shell.nix` | Native build and runtime libraries for NixOS (`nix-shell`) |
-| `.mise/` | Pinned Rust toolchain and `build`, `test`, `run`, `check`, `fmt`, `agents:init-claude` tasks |
+| `.mise/` | Pinned toolchain and `build`, `test`, `run`, `check`, `fmt`, `web:build`, `web:serve`, `agents:init-claude` tasks |
 | `AGENTS.md`, `CONTRIBUTING.md` | Working brief for agents; workflow and validation for everyone |
 
-## How to play the starter
+## How to play
 
-Until the first pitch is built, the game is the template's platformer.
+Choose a board (Einsiedeln, Biberbrugg or Hütten), how many rivals sit at the
+board (two to four, you included; the others are computer rivals) and how long the
+game lasts. Every rival starts with five Waldleute, each a group of one, somewhere
+in an unbroken forest.
 
-Run right, collect the coins, and touch the flag. Falling out of the level returns
-you to the start; Restart begins a fresh run with all coins back and the clock reset.
+- **Cut.** Press on one of your groups and drag a line over the forest. A group of
+  one draws ten tiles, two twenty, four thirty: `(log2(size) + 1) × 10`. It cuts
+  tile by tile and earns the trees; bigger groups cut faster.
+- **Trails grow back.** Only the last tiles of a trail, as many as the group may
+  draw, stay open; a sapling marks the one that grows back next.
+- **Margins.** Nobody can cut next to another rival's open tile (red-tinged forest),
+  so a ring that is closing traps a group before it closes.
+- **Enclose.** Your open tiles, the water and the board's edge split the board; every
+  other rival's group in a part smaller than the largest becomes yours, with its
+  Waldleute, trees and trail. Rings hold diagonally.
+- **Water.** Wading through a river takes ten times as long as cutting and costs
+  trees; a lake needs a ship (twenty times as long, trees, at most ten Waldleute).
+  Groups in the water cannot be enclosed; a group building a ship on the shore can.
+- **Grow.** Every 40 seconds each rival gets a new Waldmensch, who joins your
+  selected group. Send a group onto another of yours to merge; split with T.
+- **Win.** When the time is up or only one rival is left, rivals rank by Waldleute,
+  then trees.
 
-| Action | Keyboard | Controller |
-| --- | --- | --- |
-| Run left / right | A / D or Left / Right | Left stick or D-pad |
-| Jump (hold for higher) | Space, W, or Up | South (A / Cross) |
-| Restart | R or Backspace | Select |
-| Quit | Escape | – |
-
-Keys are physical positions, so WASD stays in place on any keyboard layout. A jump
-pressed just before landing, or just after running off a ledge, still counts.
+| Action | Input |
+| --- | --- |
+| Select a group and draw its line | Left mouse button on the group, drag, release |
+| Draw from the selected group | Left mouse button beside it |
+| Stop the selected group | Right mouse button or X |
+| Next / previous group | Tab / Shift+Tab |
+| Split the selected group | T |
+| Switch top-down / isometric view | V |
+| Centre on the selected group | Space |
+| Move the view / zoom | WASD, arrows, middle mouse button / mouse wheel, + and − |
+| Pause, all keys | Esc |
 
 ## Requirements
 
 - [mise](https://mise.jdx.dev), recommended: `mise install` provides Rust 1.97.1
-  with rustfmt and Clippy, as pinned in [.mise/config.toml](.mise/config.toml).
+  with rustfmt, Clippy and the `wasm32-unknown-unknown` target, plus
+  `wasm-bindgen`, `wasm-opt` and `miniserve` for the browser build, as pinned in
+  [.mise/config.toml](.mise/config.toml).
   Without mise, install Rust 1.97.1 or newer (edition 2024) with rustup.
 - Bevy 0.20.1, downloaded automatically by Cargo. `Cargo.lock` pins dependencies.
 - Clang and LLD on x86_64 Linux, used by [.cargo/config.toml](.cargo/config.toml)
@@ -106,10 +133,12 @@ mise run run     # build and start the game
 mise run test    # headless tests
 mise run build   # debug build; `mise run build --release` for release
 mise run check   # format, Clippy, build, and tests before a PR
+mise run web:build  # browser version into dist/web
+mise run web:serve  # build it and serve it on http://127.0.0.1:8080
 mise tasks       # list every task
 ```
 
-Each task passes extra arguments to Cargo, for example `mise run test jump`. The
+Each task passes extra arguments to Cargo, for example `mise run test ring`. The
 tasks are plain scripts in [.mise/tasks/](.mise/tasks/), so the equivalent Cargo
 commands also work:
 
@@ -123,6 +152,15 @@ cargo test --locked
 
 The first build downloads and compiles Bevy and can take several minutes.
 Dependencies are optimized in development builds for usable runtime performance.
+
+The browser version is the same crate built for `wasm32-unknown-unknown` with
+WebGL2 and a size-optimized `web` profile; [web/index.html](web/index.html) is its
+page ([ADR 0005](docs/architecture/decisions/0005-build-the-same-crate-for-the-browser.md)).
+The [Pages workflow](.github/workflows/pages.yml) publishes it from `main`; Pages
+must use "GitHub Actions" as its source in the repository settings.
+
+The boards' waters are the Waldstatt's, from swissTLM3D (© swisstopo) and BAFU's
+stream orders (© BAFU); see [data/waters/](data/waters/README.md).
 
 ## Agent skills
 

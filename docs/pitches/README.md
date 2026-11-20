@@ -44,4 +44,4 @@ What this pitch explicitly does not include.
 
 | Pitch | Status |
 | --- | --- |
-| [Rivalen im Wald – rivals enclose each other in the forest, as in Go](rivalen-im-wald/pitch--rivalen-im-wald.md) | shaped |
+| [Rivalen im Wald – rivals enclose each other in the forest, as in Go](rivalen-im-wald/pitch--rivalen-im-wald.md) | implemented |

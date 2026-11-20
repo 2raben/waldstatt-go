@@ -1,8 +1,16 @@
 ---
 tags: [adr]
-status: proposed
+status: accepted
 date: 2026-11-20
 sources:
+  - src/main.rs
+  - src/rules/mod.rs
+  - src/rules/commands.rs
+  - src/rules/game.rs
+  - src/rules/sight.rs
+  - src/ai.rs
+  - src/input.rs
+  - src/tests.rs
   - ../../pitches/rivalen-im-wald/pitch--rivalen-im-wald.md
   - 0001-move-groups-tile-by-tile-on-the-board.md
 ---
@@ -61,6 +69,12 @@ commands.
 A game is its board, its seed and its sequence of commands per step. Given the
 same three, it ends the same way.
 
+As implemented, the rules are `RulesPlugin` in [src/rules/](../../../src/rules/mod.rs),
+with `Order::Line`, `Order::Split` and `Order::Receiver` queued in `Controls` and
+applied by `apply_commands`; the computer rivals are `ComputerRivalsPlugin` in
+[src/ai.rs](../../../src/ai.rs), which runs before the rules and reads each rival's
+`Sight`. Pausing stops `Time<Virtual>`, so no fixed step runs.
+
 ## Consequences
 
 - Tests play scripted games by writing commands, exactly as input and computer
@@ -76,12 +90,13 @@ same three, it ends the same way.
 
 ## The tell
 
-- `rg -n "ButtonInput|Gamepad|KeyCode|CursorMoved|Window" <rule modules>` finds
-  nothing; device input appears only in the input module.
-- `rg -n "Sprite|Camera2d|Camera3d|Text::|Node \{|Transform" <rule modules>`
+- `rg -n "ButtonInput|Gamepad|KeyCode|CursorMoved|Window" src/rules/ src/ai.rs`
+  finds nothing; device input appears only in `input.rs` and `camera.rs`.
+- `rg -n "Sprite|Camera2d|Camera3d|Text::|Node \{|Transform" src/rules/ src/ai.rs`
   finds nothing.
-- A test plays the same seed and commands twice and gets identical results; a
-  difference means order or randomness leaked in.
+- `cargo test --locked the_same_seed_and_commands_play_the_same_game` plays the
+  same seed with computer rivals twice and compares the whole state every five
+  seconds; a difference means order or randomness leaked in.
 - Computer rival systems query rule components read-only and write only
   `Controls`; review any `&mut` on rule state there.
 - `cargo test --locked` builds the rules without `DefaultPlugins`.

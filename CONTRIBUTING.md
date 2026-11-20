@@ -70,9 +70,9 @@ cargo build --locked
 cargo test --locked
 ```
 
-There are no CI workflows yet. Tests include unit tests beside each module and
-headless simulation tests in `src/tests.rs`, which step the real plugins at the
-fixed timestep. Prefer focused tests of game rules and ECS systems that can run
+There is no CI workflow for pull requests. Tests include unit tests beside each
+module and headless game tests in `src/tests.rs`, which step the real plugins at
+the fixed timestep and play through commands. Prefer focused tests of game rules and ECS systems that can run
 without a window. Include regression coverage for meaningful bugs; avoid tests that
 merely duplicate implementation details. Run a subset with `mise run test <name>`.
 
@@ -82,19 +82,33 @@ For rendering, input, or gameplay changes, also run:
 mise run run
 ```
 
-Check the affected behavior manually in the starter level:
+Check the affected behavior manually in a game:
 
-- A/D and the arrow keys run; releasing stops quickly. The player faces its
-  direction of travel, and motion looks smooth.
-- Holding jump clears the wall before the last gap; tapping gives a short hop.
-  There are no midair jumps.
-- The player cannot pass through walls, ceilings, or the floating platform.
-- Coins disappear on touch and the HUD count rises.
-- Falling into a gap returns to the start with coins and time kept.
-- Touching the flag stops the clock and shows the finish cue; only Restart works
-  until then. Restart restores all coins, the start position, and the clock.
-- A controller runs with the stick or D-pad, jumps with South, and restarts with
-  Select. Escape quits.
+- The start menu leads to the setup; each board, two to four rivals, and each
+  length can be chosen, and «Spiel beginnen» starts on the chosen board.
+- Pressing on one of your groups selects it; dragging draws a line of straight
+  steps that follows the pointer, no longer than the group's limit, and moving
+  back takes it back. Releasing sends the group; a click beside the group draws
+  from the selected group. Right click or X stops it.
+- The group cuts tile by tile; its trail stays open behind it and the sapling
+  marks the tile that grows back next. A group of four cuts visibly faster.
+- A line onto another of your groups merges them; T splits the selected group.
+- Forest next to another rival's trail is tinged red and cannot be cut; a line
+  into it stops short.
+- V switches between top-down and isometric at any time, even while a group is
+  cutting: every group stays on its tile, its line unchanged, and picking tiles
+  works the same in both.
+- Black is unexplored, fog keeps the waters; other rivals show only near your
+  groups. Wading into a river and building a ship on a lake (Hütten) cost trees.
+- A ring closing round a group flashes the enclosed part and the ring, and the
+  news says who enclosed whom; a trapped group of yours shows a red ring and the
+  warning. Esc pauses; the game ends with the ranking when time is up.
+
+For browser-only changes, also run
+`cargo clippy --locked --target wasm32-unknown-unknown -- -D warnings` and
+`mise run web:serve`, and check the same in a desktop browser at
+<http://127.0.0.1:8080>. The [Pages workflow](.github/workflows/pages.yml) builds
+and publishes the browser version from `main`.
 
 Record what was checked; if no graphical environment is available, report that
 limitation.

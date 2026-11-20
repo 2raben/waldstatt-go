@@ -1,108 +1,164 @@
-//! A side-scrolling camera that follows the player and stays inside the level.
+//! The camera: an orthographic view of the board that pans and zooms, centres
+//! on the selected group, and keeps the same tile in the middle when the view
+//! switches between top-down and isometric.
 
-use bevy::camera::ScalingMode;
+use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 
-use crate::level::Level;
-use crate::player::Player;
+use crate::ground::Watcher;
+use crate::input::Selection;
+use crate::rules::{Board, Group, Rival};
+use crate::screens::playing;
+use crate::view::{BoardRoot, BoardView};
 
-/// The minimum visible area, in world units.
-pub const VIEW: Vec2 = Vec2::new(960.0, 540.0);
+/// Pan speed with the keys, in screen pixels per second.
+const PAN_SPEED: f32 = 700.0;
+const MIN_ZOOM: f32 = 0.2;
+const MAX_ZOOM: f32 = 4.0;
+/// Tiles across the view when a game starts.
+const START_TILES: f32 = 48.0;
 
-/// The view leads the player slightly to the right, where the level continues.
-const LOOK_AHEAD: Vec2 = Vec2::new(120.0, 40.0);
-const FOLLOW_RATE: f32 = 6.0;
-/// Larger jumps, such as a respawn, snap instead of gliding.
-const SNAP_DISTANCE: f32 = 600.0;
+#[derive(Component)]
+pub struct MainCamera;
 
-/// Camera movement in `PostUpdate`, after the player's transform is placed.
-#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct CameraSystems;
+/// The view the camera was last placed for.
+#[derive(Resource, Default)]
+struct CameraView(BoardView);
 
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_camera).add_systems(
-            PostUpdate,
-            follow_player
-                .in_set(CameraSystems)
-                .before(TransformSystems::Propagate),
-        );
+        app.init_resource::<CameraView>()
+            .add_systems(Startup, spawn_camera)
+            .add_systems(Update, (frame_new_board, keep_tile_on_view_switch))
+            .add_systems(Update, (pan_and_zoom, centre_on_selection).run_if(playing));
     }
 }
 
-fn spawn_camera(mut commands: Commands, level: Res<Level>) {
-    commands.spawn((
-        Camera2d,
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::AutoMin {
-                min_width: VIEW.x,
-                min_height: VIEW.y,
-            },
-            ..OrthographicProjection::default_2d()
-        }),
-        Transform::from_translation(camera_target(&level, level.start, VIEW * 0.5).extend(0.0)),
-    ));
+fn spawn_camera(mut commands: Commands) {
+    commands.spawn((Name::new("Camera"), Camera2d, MainCamera));
 }
 
-/// Where the camera should centre for a player at `player`, keeping a view of
-/// `half_view` inside the level where it fits and centring it where it does not.
-pub fn camera_target(level: &Level, player: Vec2, half_view: Vec2) -> Vec2 {
-    let wanted = player + LOOK_AHEAD;
-    let bounds = level.bounds;
-    let axis = |wanted: f32, min: f32, max: f32, half: f32| {
-        if max - min <= 2.0 * half {
-            0.5 * (min + max)
-        } else {
-            wanted.clamp(min + half, max - half)
-        }
-    };
-    Vec2::new(
-        axis(wanted.x, bounds.min.x, bounds.max.x, half_view.x),
-        axis(wanted.y, bounds.min.y, bounds.max.y, half_view.y),
-    )
+fn zoom_of(projection: &Projection) -> f32 {
+    match projection {
+        Projection::Orthographic(ortho) => ortho.scale,
+        _ => 1.0,
+    }
 }
 
-fn follow_player(
-    time: Res<Time>,
-    level: Res<Level>,
-    players: Query<&Transform, (With<Player>, Without<Camera2d>)>,
-    mut cameras: Query<(&mut Transform, &Projection), With<Camera2d>>,
+fn set_zoom(projection: &mut Projection, zoom: f32) {
+    if let Projection::Orthographic(ortho) = projection {
+        ortho.scale = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
+    }
+}
+
+/// Centres on the player's first Waldleute when a game starts.
+fn frame_new_board(
+    view: Res<BoardView>,
+    watcher: Res<Watcher>,
+    windows: Query<&Window>,
+    roots: Query<(), Added<BoardRoot>>,
+    rivals: Query<&Rival>,
+    board: Option<Res<Board>>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
 ) {
-    let Ok(player) = players.single() else {
+    let (false, Some(board)) = (roots.is_empty(), board) else {
         return;
     };
-    for (mut camera, projection) in &mut cameras {
-        let half_view = match projection {
-            Projection::Orthographic(ortho) => ortho.area.half_size(),
-            _ => VIEW * 0.5,
-        };
-        let target = camera_target(&level, player.translation.truncate(), half_view);
-        let current = camera.translation.truncate();
-        let next = if current.distance(target) > SNAP_DISTANCE {
-            target
-        } else {
-            let blend = 1.0 - (-FOLLOW_RATE * time.delta_secs()).exp();
-            current.lerp(target, blend)
-        };
-        camera.translation = next.extend(camera.translation.z);
+    let home = rivals.iter().find(|r| Some(r.id) == watcher.0).map_or(
+        Vec2::new(board.width as f32, board.height as f32) / 2.0,
+        |r| Vec2::new(r.home.x as f32 + 0.5, r.home.y as f32 + 0.5),
+    );
+    let width = windows.iter().next().map_or(1280.0, |w| w.width());
+    for (mut transform, mut projection) in &mut cameras {
+        transform.translation = view.project(home).extend(transform.translation.z);
+        set_zoom(&mut projection, START_TILES * crate::view::TILE / width);
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn keep_tile_on_view_switch(
+    view: Res<BoardView>,
+    mut last: ResMut<CameraView>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+) {
+    if last.0 == *view {
+        return;
+    }
+    for mut transform in &mut cameras {
+        let tile = last.0.unproject(transform.translation.truncate());
+        transform.translation = view.project(tile).extend(transform.translation.z);
+    }
+    last.0 = *view;
+}
 
-    #[test]
-    fn keeps_the_view_inside_the_level() {
-        let level = Level::starter();
-        let half = VIEW * 0.5;
-        let at_start = camera_target(&level, level.start, half);
-        assert_eq!(at_start.x, level.bounds.min.x + half.x);
-        // The starter level is shorter than the view, so it is centred vertically.
-        assert_eq!(at_start.y, level.bounds.center().y);
-        let at_goal = camera_target(&level, level.goal.center(), half);
-        assert_eq!(at_goal.x, level.bounds.max.x - half.x);
+#[allow(clippy::too_many_arguments)]
+fn pan_and_zoom(
+    time: Res<Time<Real>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    motion: Res<AccumulatedMouseMotion>,
+    scroll: Res<AccumulatedMouseScroll>,
+    view: Res<BoardView>,
+    board: Option<Res<Board>>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
+) {
+    let Some(board) = board else {
+        return;
+    };
+    let any = |codes: &[KeyCode]| keys.any_pressed(codes.iter().copied());
+    let mut direction = Vec2::ZERO;
+    direction.x += f32::from(u8::from(any(&[KeyCode::KeyD, KeyCode::ArrowRight])));
+    direction.x -= f32::from(u8::from(any(&[KeyCode::KeyA, KeyCode::ArrowLeft])));
+    direction.y += f32::from(u8::from(any(&[KeyCode::KeyW, KeyCode::ArrowUp])));
+    direction.y -= f32::from(u8::from(any(&[KeyCode::KeyS, KeyCode::ArrowDown])));
+    for (mut transform, mut projection) in &mut cameras {
+        let zoom = zoom_of(&projection);
+        let mut at = transform.translation.truncate();
+        at += direction * PAN_SPEED * zoom * time.delta_secs();
+        if buttons.pressed(MouseButton::Middle) {
+            at += Vec2::new(-motion.delta.x, motion.delta.y) * zoom;
+        }
+        // Keep the middle of the view on the board.
+        let tile = view.unproject(at);
+        let clamped = tile.clamp(
+            Vec2::ZERO,
+            Vec2::new(board.width as f32, board.height as f32),
+        );
+        at = view.project(clamped);
+        transform.translation = at.extend(transform.translation.z);
+        let mut wheel = scroll.delta.y;
+        if keys.any_just_pressed([KeyCode::Equal, KeyCode::NumpadAdd]) {
+            wheel += 1.0;
+        }
+        if keys.any_just_pressed([KeyCode::Minus, KeyCode::NumpadSubtract]) {
+            wheel -= 1.0;
+        }
+        if wheel != 0.0 {
+            set_zoom(&mut projection, zoom * 0.88f32.powf(wheel.clamp(-3.0, 3.0)));
+        }
+    }
+}
+
+fn centre_on_selection(
+    keys: Res<ButtonInput<KeyCode>>,
+    view: Res<BoardView>,
+    selection: Res<Selection>,
+    groups: Query<&Group>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+) {
+    if !keys.just_pressed(KeyCode::Space) {
+        return;
+    }
+    let Some(group) = selection
+        .group
+        .and_then(|id| groups.iter().find(|g| g.id == id))
+    else {
+        return;
+    };
+    let at = view.centre(group.tile);
+    for mut transform in &mut cameras {
+        transform.translation = at.extend(transform.translation.z);
     }
 }

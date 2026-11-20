@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+#MISE description="Build the browser version and serve it on http://127.0.0.1:8080 (or $PORT)"
+#MISE depends=["web:build"]
+set -euo pipefail
+miniserve --interfaces 127.0.0.1 --port "${PORT:-8080}" --index index.html dist/web
