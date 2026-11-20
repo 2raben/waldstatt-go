@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="de-CH">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Waldstatt Go</title>
+    <!-- No favicon request; the page loads nothing but itself and the game. -->
+    <link rel="icon" href="data:,">
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #0f110f;
+        color: #f2eedb;
+        font-family: system-ui, sans-serif;
+        overflow: hidden;
+      }
+      #waldstatt-go {
+        display: block;
+        width: 100%;
+        height: 100%;
+        outline: none;
+      }
+      #status {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        margin: 0;
+        padding: 16px;
+        text-align: center;
+        font-size: 1.4rem;
+      }
+      #status[hidden] {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="waldstatt-go" tabindex="0"></canvas>
+    <p id="status">Der Wald wird geladen …</p>
+    <script type="module">
+      const status = document.getElementById("status");
+      const canvas = document.getElementById("waldstatt-go");
+
+      if (!document.createElement("canvas").getContext("webgl2")) {
+        status.textContent =
+          "Dieser Browser kann kein WebGL2. Waldstatt Go läuft in einem aktuellen Firefox, Chrome oder Safari auf dem Computer.";
+      } else {
+        try {
+          const { default: init } = await import("./waldstatt-go.js");
+          await init();
+          status.hidden = true;
+          // The keyboard goes to the game; a click on the board brings it back.
+          canvas.focus();
+        } catch (error) {
+          console.error(error);
+          status.textContent = "Waldstatt Go konnte nicht starten.";
+        }
+      }
+    </script>
+  </body>
+</html>

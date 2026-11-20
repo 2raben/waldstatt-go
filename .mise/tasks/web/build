@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Build the browser version into dist/web"
+set -euo pipefail
+out=dist/web
+cargo build --locked --profile web --target wasm32-unknown-unknown
+rm -rf "$out"
+mkdir -p "$out"
+wasm-bindgen --target web --no-typescript --out-dir "$out" --out-name waldstatt-go \
+  target/wasm32-unknown-unknown/web/waldstatt-go.wasm
+wasm-opt -Os "$out/waldstatt-go_bg.wasm" -o "$out/waldstatt-go_bg.wasm"
+cp web/index.html "$out/"
+ls -l "$out"

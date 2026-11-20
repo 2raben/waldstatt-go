@@ -3,7 +3,14 @@
 
 [tools]
 # Matches `rust-version` in Cargo.toml; Bevy 0.20 requires rustc 1.97.1.
-rust = { version = "1.97.1", components = "rustfmt,clippy" }
+# The wasm32 target builds the browser version (`mise run web:build`).
+rust = { version = "1.97.1", components = "rustfmt,clippy", targets = "wasm32-unknown-unknown" }
+# Must match the `wasm-bindgen` crate version in Cargo.lock exactly.
+"github:wasm-bindgen/wasm-bindgen" = "0.2.130"
+# `wasm-opt` shrinks the browser build.
+"github:WebAssembly/binaryen" = "version_133"
+# Serves the browser build locally (`mise run web:serve`).
+miniserve = "0.35.0"
 
 [env]
 # Show Rust backtraces when the game or a test panics.

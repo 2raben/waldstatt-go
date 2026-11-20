@@ -2,15 +2,17 @@
 
 A Rust 2024 game built with Bevy 0.20: rivals fell their way through the forest
 round Einsiedeln and win each other's Waldleute by enclosing them, as in Go
-([game idea](docs/idea.md)). The first playable is shaped in the
-[Rivalen im Wald pitch](docs/pitches/rivalen-im-wald/pitch--rivalen-im-wald.md)
-and not built yet. The current implementation is still the template's starter
-platformer: one level from a text map, a player who runs and jumps with
-hand-written kinematics, coins, a goal flag, a following camera, and a HUD. Use the versions in `Cargo.toml`
-and the dependencies pinned by `Cargo.lock`.
+([game idea](docs/idea.md)). The first playable implements the
+[Rivalen im Wald pitch](docs/pitches/rivalen-im-wald/pitch--rivalen-im-wald.md):
+a board cut from the real map, two to four rivals of which all but the player are
+computer rivals, groups that cut lines and leave trails that grow back, enclosing
+by rings of open ground, water crossed by wading or by ship, fog, top-down and
+isometric views, menus and a ranking, natively and in the browser. Use the
+versions in `Cargo.toml` and the dependencies pinned by `Cargo.lock`.
 
 The board comes from the Waldstatt (<https://2raben.github.io/waldstatt/>,
-`2raben/waldstatt`): its generated water pages, credited to swisstopo and BAFU.
+`2raben/waldstatt`): its generated water pages, copied into `data/waters/` and
+credited to swisstopo and BAFU in the game.
 Write all game text in German with Swiss spelling ("ss", not "ß"), like the
 Waldstatt's.
 
@@ -22,17 +24,22 @@ Consult the [architectural decision records (ADRs)](docs/architecture/decisions/
 for significant choices and their rationale.
 
 - `src/main.rs`: application composition and window configuration.
-- `src/simulation.rs`, `level.rs`, `player.rs`, `run.rs`: the headless simulation
-  (plugin and fixed-step ordering, the tile map, movement and collision, and the
-  run rules for coins, goal, falling out, and restart).
-- `src/input.rs`, `visuals.rs`, `camera.rs`, `hud.rs`: device input, drawing and
-  render interpolation, the camera, and on-screen text.
-- `src/tests.rs`: headless simulation tests of movement and the run rules.
+- `src/rules/`: the headless rules (`RulesPlugin`): board and boards from the water
+  pages, tuning, game setup and end, groups, lines and trails, commands, enclosure,
+  sight, and the seeded generator.
+- `src/ai.rs`: the computer rivals, headless, through the same commands.
+- `src/style.rs`, `view.rs`, `ground.rs`, `markers.rs`: look and font, the two
+  views and their projection, the ground image, and markers on the board.
+- `src/input.rs`, `camera.rs`, `screens.rs`, `hud.rs`: device input into commands,
+  the camera, menus and pause, and on-screen text.
+- `src/tests.rs`: headless game tests that play the rules through commands.
+- `data/waters/`: the Waldstatt's water pages, compiled in; `assets/fonts/`: Fira Sans.
+- `web/index.html`: the page of the browser build.
 - `Cargo.toml` and `.cargo/config.toml`: dependencies, build profiles, and Linux
   linker settings.
 - `shell.nix`: native libraries for NixOS; run Cargo and mise tasks inside `nix-shell` there.
 - `.mise/config.toml` and `.mise/tasks/`: the pinned toolchain and the `build`,
-  `test`, `run`, `check`, and `fmt` tasks.
+  `test`, `run`, `check`, `fmt`, `web:build`, and `web:serve` tasks.
 - [docs/idea.md](docs/idea.md): game direction and longer-term possibilities.
 - [docs/pitches/](docs/pitches/README.md): bounded feature proposals and companion sketches.
 
@@ -54,11 +61,13 @@ Keep game state and behavior within Bevy's entity/component/system model. Keep
 systems focused and introduce modules or plugins as implemented features need them.
 Do not add a parallel game loop or speculative framework.
 
-Distinguish implemented behavior from ideas and pitches. Keep simulation code free
-of rendering and device input so it stays testable headless, and pass input to
-fixed-step systems only through the `Controls` resource. Simulation positions live
-in `Position`; only presentation code writes `Transform`. Treat movement tuning as
-play-test values and judge changes in the running game.
+Distinguish implemented behavior from ideas and pitches. Keep the rules and the
+computer rivals free of rendering and device input so they stay testable headless,
+and pass input to fixed-step systems only through the `Controls` resource as
+commands. Rule positions are whole tiles and progress is integer work; only
+presentation code writes `Transform`. Derive all randomness from the game's seed
+and resolve ties in the game's rival order. Treat the `Tuning` values as play-test
+values and judge changes in the running game.
 
 Update architecture documentation alongside changes to structure or behavior.
 Record lasting architectural choices with the
