@@ -46,3 +46,5 @@ readable at [3b174ac](https://github.com/2raben/waldstatt-go/tree/3b174ac/docs/a
 | [0003 — Pin the toolchain and run project tasks with mise](0003-run-project-tasks-with-mise.md) | accepted |
 | [0004 — Compile the boards from copied Waldstatt water pages](0004-compile-the-boards-from-copied-waldstatt-water-pages.md) | accepted |
 | [0005 — Build the same crate for the browser](0005-build-the-same-crate-for-the-browser.md) | accepted |
+| [0006 — Paint the isometric sprites in code](0006-paint-the-isometric-sprites-in-code.md) | accepted |
+| [0007 — Spread each group over the tiles of its Waldleute](0007-spread-each-group-over-the-tiles-of-its-waldleute.md) | accepted |

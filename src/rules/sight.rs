@@ -75,7 +75,7 @@ pub fn update_sight(
         let tiles = groups
             .iter()
             .filter(|g| g.rival == rival.id)
-            .map(|g| g.tile);
+            .flat_map(|g| g.tiles().collect::<Vec<_>>());
         sight.look(&board, rival.id, tiles, tuning.view_radius);
     }
 }

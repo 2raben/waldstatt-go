@@ -11,7 +11,9 @@ pub mod commands;
 pub mod enclosure;
 pub mod game;
 pub mod group;
+pub mod moves;
 pub mod rng;
+pub mod route;
 pub mod sight;
 pub mod tuning;
 pub mod waters;
@@ -39,7 +41,7 @@ impl Plugin for RulesPlugin {
                 FixedUpdate,
                 (
                     commands::apply_commands,
-                    group::advance_groups,
+                    moves::advance_groups,
                     enclosure::resolve_enclosures,
                     game::grant_waldleute,
                     sight::update_sight,

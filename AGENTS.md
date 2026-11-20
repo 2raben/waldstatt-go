@@ -25,11 +25,14 @@ for significant choices and their rationale.
 
 - `src/main.rs`: application composition and window configuration.
 - `src/rules/`: the headless rules (`RulesPlugin`): board and boards from the water
-  pages, tuning, game setup and end, groups, lines and trails, commands, enclosure,
-  sight, and the seeded generator.
+  pages, tuning, game setup and end, groups of Waldleute each on its own tile,
+  lines and trails, moving, merging and gathering (`moves.rs`), commands,
+  enclosure, sight, and the seeded generator.
 - `src/ai.rs`: the computer rivals, headless, through the same commands.
 - `src/style.rs`, `view.rs`, `ground.rs`, `markers.rs`: look and font, the two
-  views and their projection, the ground image, and markers on the board.
+  views and their projection, the ground in chunks, and markers on the board.
+- `src/art.rs`, `scenery.rs`, `people.rs`: sprites painted in code, the trees and
+  glints of the isometric view, and every Waldmensch in both views.
 - `src/input.rs`, `camera.rs`, `screens.rs`, `hud.rs`: device input into commands,
   the camera, menus and pause, and on-screen text.
 - `src/tests.rs`: headless game tests that play the rules through commands.

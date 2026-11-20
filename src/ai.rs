@@ -106,7 +106,7 @@ impl View<'_> {
             // Rivers here are one to three tiles wide.
             Ground::River => group.trees >= self.tuning.river_trees * 3,
             Ground::Lake(_) => {
-                group.size <= self.tuning.ship_capacity && group.trees >= self.tuning.ship_trees
+                group.size() <= self.tuning.ship_capacity && group.trees >= self.tuning.ship_trees
             }
         }
     }
@@ -120,7 +120,7 @@ impl View<'_> {
     /// The shortest way of straight steps from `from` to a tile `goal`
     /// accepts, over passable land and, if allowed, water.
     fn path(&self, group: &Group, goal: impl Fn(Tile) -> bool, water: bool) -> Option<Vec<Tile>> {
-        let from = group.tile;
+        let from = group.tile();
         let mut came: BTreeMap<Tile, Tile> = BTreeMap::new();
         let mut queue = VecDeque::from([from]);
         came.insert(from, from);
@@ -218,11 +218,11 @@ fn think(
         let mut enemies: Vec<&Group> = groups
             .iter()
             .map(|(g, ..)| g)
-            .filter(|g| g.rival != rival.id && sight.sees(&board, g.tile))
+            .filter(|g| g.rival != rival.id && sight.sees(&board, g.tile()))
             .collect();
         enemies.sort_by_key(|g| g.id);
         let brain = brains.0.entry(rival.id).or_default();
-        for order in decide(&view, rival, &game, &own, &enemies, brain) {
+        for order in decide(&view, &game, &own, &enemies, brain) {
             controls.send(rival.id, order);
         }
     }
@@ -231,13 +231,13 @@ fn think(
 fn line(group: &Group, tiles: Vec<Tile>) -> Order {
     Order::Line {
         group: group.id,
+        from: group.tile(),
         tiles,
     }
 }
 
 fn decide(
     view: &View,
-    rival: &Rival,
     game: &Game,
     own: &[(&Group, &Line)],
     enemies: &[&Group],
@@ -246,18 +246,9 @@ fn decide(
     let mut orders = Vec::new();
     let mut busy: BTreeSet<GroupId> = BTreeSet::new();
 
-    // New Waldleute go to the largest group, which hunts best.
-    if let Some((largest, _)) = own
-        .iter()
-        .max_by_key(|(g, _)| (g.size, std::cmp::Reverse(g.id)))
-        && rival.receiver != Some(largest.id)
-    {
-        orders.push(Order::Receiver { group: largest.id });
-    }
-
     // Run, or take to the water, when a ring is closing.
     for &(group, _) in own {
-        if view.board.is_water(group.tile) {
+        if view.board.is_water(group.tile()) {
             continue;
         }
         if view.trapped(group) {
@@ -278,26 +269,26 @@ fn decide(
         }
         let threatened = enemies
             .iter()
-            .any(|e| e.size > group.size && e.tile.chebyshev(group.tile) <= THREAT_RANGE);
+            .any(|e| e.size() > group.size() && e.tile().chebyshev(group.tile()) <= THREAT_RANGE);
         if !threatened {
             continue;
         }
         let company = own
             .iter()
             .map(|(g, _)| *g)
-            .filter(|g| g.id != group.id && !busy.contains(&g.id) && !view.board.is_water(g.tile))
-            .filter(|g| g.tile.manhattan(group.tile) <= COMPANY_RANGE)
-            .min_by_key(|g| (g.tile.manhattan(group.tile), g.id));
+            .filter(|g| g.id != group.id && !busy.contains(&g.id) && !view.board.is_water(g.tile()))
+            .filter(|g| g.tile().manhattan(group.tile()) <= COMPANY_RANGE)
+            .min_by_key(|g| (g.tile().manhattan(group.tile()), g.id));
         let Some(other) = company else {
             continue;
         };
         // The smaller one goes to the bigger one, which waits.
-        let (mover, stayer) = if (group.size, other.id) < (other.size, group.id) {
+        let (mover, stayer) = if (group.size(), other.id) < (other.size(), group.id) {
             (group, other)
         } else {
             (other, group)
         };
-        if let Some(way) = view.path(mover, |t| t == stayer.tile, false) {
+        if let Some(way) = view.path(mover, |t| t == stayer.tile(), false) {
             orders.push(line(mover, way));
             orders.push(line(stayer, Vec::new()));
             busy.insert(mover.id);
@@ -309,13 +300,14 @@ fn decide(
 
     // Spread out: idle groups split when large and go where nobody has been.
     for (i, &(group, group_line)) in own.iter().enumerate() {
-        if busy.contains(&group.id) || !group_line.0.is_empty() || view.board.is_water(group.tile) {
+        if busy.contains(&group.id) || !group_line.0.is_empty() || view.board.is_water(group.tile())
+        {
             continue;
         }
         let calm = !enemies
             .iter()
-            .any(|e| e.tile.chebyshev(group.tile) <= HUNT_RANGE);
-        if group.size >= 5 && calm {
+            .any(|e| e.tile().chebyshev(group.tile()) <= HUNT_RANGE);
+        if group.size() >= 5 && calm {
             orders.push(Order::Split { group: group.id });
             continue;
         }
@@ -329,7 +321,7 @@ fn decide(
 /// How many ring tiles a group takes on: what its trail holds open, less the
 /// way there.
 fn capacity(group: &Group) -> usize {
-    (line_limit(group.size) * 2 / 3).max(4)
+    (line_limit(group.size()) * 2 / 3).max(4)
 }
 
 /// Closes a ring round the smallest group in sight, with up to [`HUNTERS`] of
@@ -349,7 +341,7 @@ fn hunt(
     let keep = brain.hunt.as_ref().is_some_and(|h| {
         game.step < h.since + HUNT_STEPS
             && enemies.iter().any(|e| {
-                e.id == h.target && inside(&h.ring, e.tile) && !view.board.is_water(e.tile)
+                e.id == h.target && inside(&h.ring, e.tile()) && !view.board.is_water(e.tile())
             })
             && needed_tiles(view, &h.ring)
                 .iter()
@@ -360,20 +352,23 @@ fn hunt(
         let free: Vec<&Group> = own
             .iter()
             .map(|(g, _)| *g)
-            .filter(|g| !busy.contains(&g.id) && !view.board.is_water(g.tile))
+            .filter(|g| !busy.contains(&g.id) && !view.board.is_water(g.tile()))
             .collect();
         let mut targets: Vec<&&Group> = enemies
             .iter()
-            .filter(|e| !view.board.is_water(e.tile))
-            .filter(|e| free.iter().any(|g| g.tile.manhattan(e.tile) <= HUNT_RANGE))
+            .filter(|e| !view.board.is_water(e.tile()))
+            .filter(|e| {
+                free.iter()
+                    .any(|g| g.tile().manhattan(e.tile()) <= HUNT_RANGE)
+            })
             .collect();
         targets.sort_by_key(|e| {
             let near = free
                 .iter()
-                .map(|g| g.tile.manhattan(e.tile))
+                .map(|g| g.tile().manhattan(e.tile()))
                 .min()
                 .unwrap_or(i32::MAX);
-            (e.size, near, e.id)
+            (e.size(), near, e.id)
         });
         for target in targets {
             let Some(ring) = ring_round(view, target) else {
@@ -381,7 +376,7 @@ fn hunt(
             };
             let needed = needed_tiles(view, &ring).len();
             let mut nearest = free.clone();
-            nearest.sort_by_key(|g| (g.tile.manhattan(target.tile), g.id));
+            nearest.sort_by_key(|g| (g.tile().manhattan(target.tile()), g.id));
             let reach: usize = nearest.iter().take(HUNTERS).map(|g| capacity(g)).sum();
             if reach >= needed {
                 brain.hunt = Some(Hunt {
@@ -406,10 +401,10 @@ fn hunt(
     let ring: BTreeSet<Tile> = hunt.ring.iter().copied().collect();
     let mut hunters: Vec<(&Group, &Line)> = own
         .iter()
-        .filter(|(g, _)| !busy.contains(&g.id) && !view.board.is_water(g.tile))
+        .filter(|(g, _)| !busy.contains(&g.id) && !view.board.is_water(g.tile()))
         .copied()
         .collect();
-    hunters.sort_by_key(|(g, _)| (g.tile.manhattan(target.tile), g.id));
+    hunters.sort_by_key(|(g, _)| (g.tile().manhattan(target.tile()), g.id));
     hunters.truncate(HUNTERS);
     // Hunters already on their piece keep it; hunters holding a piece wait.
     let mut free = Vec::new();
@@ -434,18 +429,18 @@ fn hunt(
         let Some(mut run) = runs.into_iter().min_by_key(|run| {
             let ends = [run[0], run[run.len() - 1]];
             ends.iter()
-                .map(|t| t.manhattan(group.tile))
+                .map(|t| t.manhattan(group.tile()))
                 .min()
                 .unwrap_or(i32::MAX)
         }) else {
             break;
         };
-        if run[run.len() - 1].manhattan(group.tile) < run[0].manhattan(group.tile) {
+        if run[run.len() - 1].manhattan(group.tile()) < run[0].manhattan(group.tile()) {
             run.reverse();
         }
         run.truncate(capacity(group));
         let start = run[0];
-        let mut way = if group.tile == start {
+        let mut way = if group.tile() == start {
             Vec::new()
         } else {
             match view.path(group, |t| t == start, false) {
@@ -483,8 +478,8 @@ fn ring_round(view: &View, target: &Group) -> Option<Vec<Tile>> {
 /// The target's tile and the open tiles of its rival joined to it, as far as
 /// seen: its trail, and any trail touching it.
 fn trail_seen(view: &View, target: &Group) -> Vec<Tile> {
-    let mut body = BTreeSet::from([target.tile]);
-    let mut queue = VecDeque::from([target.tile]);
+    let mut body = BTreeSet::from([target.tile()]);
+    let mut queue = VecDeque::from([target.tile()]);
     while let Some(tile) = queue.pop_front() {
         for next in tile.neighbours8() {
             if body.len() < 60
@@ -576,8 +571,8 @@ fn runs_of(ring: &[Tile], needed: &BTreeSet<Tile>) -> Vec<Vec<Tile>> {
 /// the side with the most room.
 fn escape(view: &View, group: &Group) -> Option<Vec<Tile>> {
     let mut pocket = BTreeSet::new();
-    let mut queue = VecDeque::from([group.tile]);
-    pocket.insert(group.tile);
+    let mut queue = VecDeque::from([group.tile()]);
+    pocket.insert(group.tile());
     while let Some(tile) = queue.pop_front() {
         for next in tile.neighbours4() {
             if !pocket.contains(&next)
@@ -600,7 +595,7 @@ fn escape(view: &View, group: &Group) -> Option<Vec<Tile>> {
                 std::cmp::Reverse(t),
             )
         })?;
-        (best != group.tile)
+        (best != group.tile())
             .then(|| view.path(group, |t| t == best, false))
             .flatten()
     })
@@ -611,7 +606,7 @@ fn flee(view: &View, group: &Group) -> Option<Vec<Tile>> {
     let mut sides = [0usize; 4];
     for dy in -6..=6 {
         for dx in -6i32..=6 {
-            let t = Tile::new(group.tile.x + dx, group.tile.y + dy);
+            let t = Tile::new(group.tile().x + dx, group.tile().y + dy);
             if !view.other_open(t) {
                 continue;
             }
@@ -634,10 +629,10 @@ fn flee(view: &View, group: &Group) -> Option<Vec<Tile>> {
         return None;
     }
     let (side, _) = sides.iter().enumerate().min_by_key(|&(i, &n)| (n, i))?;
-    let reach = line_limit(group.size) as i32;
+    let reach = line_limit(group.size()) as i32;
     let [dx, dy] = [[0, -1], [1, 0], [0, 1], [-1, 0]][side];
-    let to = Tile::new(group.tile.x + dx * reach, group.tile.y + dy * reach);
-    let way = view.straight(group.tile, to, line_limit(group.size));
+    let to = Tile::new(group.tile().x + dx * reach, group.tile().y + dy * reach);
+    let way = view.straight(group.tile(), to, line_limit(group.size()));
     (way.len() >= 2).then_some(way)
 }
 
@@ -660,19 +655,19 @@ fn explore(
         (-1, 0),
         (-1, -1),
     ];
-    let reach = line_limit(group.size) as i32 / 2;
+    let reach = line_limit(group.size()) as i32 / 2;
     // A turn of preference per group and over time, so rivals do not all
     // walk the same way.
     let turn = (game.step / 512 + index as u64 + u64::from(group.rival.0)) as usize;
     let mut best: Option<(i32, Vec<Tile>)> = None;
     for k in 0..DIRECTIONS.len() {
         let (dx, dy) = DIRECTIONS[(k + turn) % DIRECTIONS.len()];
-        let to = Tile::new(group.tile.x + dx * reach, group.tile.y + dy * reach);
+        let to = Tile::new(group.tile().x + dx * reach, group.tile().y + dy * reach);
         let to = Tile::new(
             to.x.clamp(1, view.board.width - 2),
             to.y.clamp(1, view.board.height - 2),
         );
-        let way = view.straight(group.tile, to, line_limit(group.size));
+        let way = view.straight(group.tile(), to, line_limit(group.size()));
         let Some(&end) = way.last() else {
             continue;
         };
@@ -691,7 +686,7 @@ fn explore(
         let spread = own
             .iter()
             .filter(|(g, _)| g.id != group.id)
-            .map(|(g, _)| g.tile.chebyshev(end))
+            .map(|(g, _)| g.tile().chebyshev(end))
             .min()
             .unwrap_or(20)
             .min(20);

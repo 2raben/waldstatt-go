@@ -15,15 +15,15 @@ use crate::screens::{Screen, time_left};
 use crate::style::{clock, palette, rival_colour, text};
 
 /// The keys, also shown in the pause menu.
-pub const HELP: &str = "Linke Maustaste auf eine Gruppe: wählen und Linie ziehen · \
-                        Klick daneben: Linie von der gewählten Gruppe · \
+pub const HELP: &str = "Linke Maustaste auf einen Waldmenschen: Gruppe wählen und von ihm \
+                        aus Linie ziehen · Klick daneben: schnellster Weg dorthin · \
                         Rechtsklick oder X: anhalten · Tab: nächste Gruppe · T: teilen · \
-                        Linie auf eine eigene Gruppe: vereinen · V: Ansicht wechseln · \
+                        Lichtungen, die sich berühren: Gruppen vereinen · V: Ansicht wechseln · \
                         Leertaste: zur Gruppe · WASD, Pfeile, mittlere Maustaste: schieben · \
                         Mausrad, +/−: Zoom · Esc: Pause";
 
 /// The reminder during a game; Esc shows all keys.
-const SHORT_HELP: &str = "Ziehen: Linie · Rechtsklick: anhalten · Tab: nächste Gruppe · \
+const SHORT_HELP: &str = "Ziehen: Linie · Klick: hingehen · Rechtsklick: anhalten · Tab: nächste Gruppe · \
                           T: teilen · V: Ansicht · Esc: Pause und alle Tasten";
 
 /// Notices kept on screen.
@@ -220,7 +220,7 @@ fn read_news(game: Option<Res<Game>>, watcher: Res<Watcher>, mut news: ResMut<Ne
             }
             GameEvent::Joined { step, rival, .. } if Some(*rival) == me => Some((
                 *step,
-                "Ein neuer Waldmensch stösst zu deiner Gruppe".into(),
+                "Ein neuer Waldmensch taucht irgendwo im Wald auf".into(),
                 palette::TEXT,
             )),
             GameEvent::Out { step, rival } => Some((
@@ -304,7 +304,7 @@ fn show_status(
         } else {
             format!(
                 "{who}: {} Waldleute · {} Bäume · {} Gruppen",
-                own.iter().map(|g| g.size).sum::<u32>(),
+                own.iter().map(|g| g.size()).sum::<u32>(),
                 own.iter().map(|g| g.trees).sum::<u32>(),
                 own.len()
             )
@@ -331,10 +331,10 @@ fn show_group(
     let line = match selected {
         None => "Keine Gruppe gewählt".to_string(),
         Some((group, trail, line)) => {
-            let limit = line_limit(group.size);
+            let limit = line_limit(group.size());
             let mut out = format!(
                 "Gewählte Gruppe: {} Waldleute · {} Bäume · {}\nSpur {}/{} offen · Linie {} von höchstens {} Feldern",
-                group.size,
+                group.size(),
                 group.trees,
                 activity(&board, group, line).label(),
                 trail.0.len(),
@@ -342,10 +342,10 @@ fn show_group(
                 line.0.len(),
                 limit,
             );
-            if trail.closes_next(group.size).is_some() {
-                out.push_str("\nDer markierte Setzling wächst beim nächsten Schnitt wieder zu.");
+            if group.regrows.is_some() {
+                out.push_str("\nDer markierte Setzling wächst als Nächstes wieder zu.");
             }
-            if group.size > tuning.ship_capacity {
+            if group.size() > tuning.ship_capacity {
                 out.push_str(&format!(
                     "\nZu gross für ein Schiff (höchstens {}).",
                     tuning.ship_capacity

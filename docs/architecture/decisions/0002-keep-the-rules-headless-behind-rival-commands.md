@@ -70,7 +70,7 @@ A game is its board, its seed and its sequence of commands per step. Given the
 same three, it ends the same way.
 
 As implemented, the rules are `RulesPlugin` in [src/rules/](../../../src/rules/mod.rs),
-with `Order::Line`, `Order::Split` and `Order::Receiver` queued in `Controls` and
+with `Order::Line` and `Order::Split` queued in `Controls` and
 applied by `apply_commands`; the computer rivals are `ComputerRivalsPlugin` in
 [src/ai.rs](../../../src/ai.rs), which runs before the rules and reads each rival's
 `Sight`. Pausing stops `Time<Virtual>`, so no fixed step runs.

@@ -8,12 +8,8 @@ use bevy::prelude::*;
 
 #[derive(Resource, Clone, Debug)]
 pub struct Tuning {
-    /// Waldleute each rival starts with, each a group of one.
+    /// Waldleute each rival starts with, each a group of one at a random tile.
     pub start_waldleute: u32,
-    /// How far from its home a rival's first Waldleute are placed, in tiles.
-    pub placing_radius: i32,
-    /// No Waldmensch starts this close (in tiles, either axis) to another rival's.
-    pub start_margin: i32,
     /// Work to cut a forest tile.
     pub cut_work: u32,
     /// Work to walk onto a tile the rival has already opened.
@@ -36,6 +32,14 @@ pub struct Tuning {
     pub speed_per_waldmensch: u32,
     /// Steps between new Waldleute (64 steps per second).
     pub waldmensch_interval: u64,
+    /// How far behind the one before it each Waldmensch of a moving group may
+    /// fall, in tiles along the way.
+    pub gap: u32,
+    /// Steps a group stands still before its trail starts growing back, so a
+    /// ring can be drawn in several lines.
+    pub regrow_after: u32,
+    /// Then one tile of its trail grows back every this many steps.
+    pub regrow_steps: u32,
     /// How far a group sees, in tiles.
     pub view_radius: i32,
     /// A group that can reach fewer tiles than this by cutting is shown as
@@ -48,8 +52,6 @@ impl Default for Tuning {
         let cut_work = 480;
         Self {
             start_waldleute: 5,
-            placing_radius: 5,
-            start_margin: 12,
             cut_work,
             walk_work: cut_work / 4,
             river_work: cut_work * 10,
@@ -61,6 +63,9 @@ impl Default for Tuning {
             speed_base: 8,
             speed_per_waldmensch: 5,
             waldmensch_interval: 40 * 64,
+            gap: 2,
+            regrow_after: 8 * 64,
+            regrow_steps: 64,
             view_radius: 7,
             trapped_room: 120,
         }

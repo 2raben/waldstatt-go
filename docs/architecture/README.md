@@ -39,13 +39,19 @@ for the browser ([ADR 0005](decisions/0005-build-the-same-crate-for-the-browser.
 - `game.rs`: `Rival`, `Seat`, `GameSetup`, `start_game`, the `Game` resource (seed,
   step, length, the rival order from the seed, events, outcome), placing the rivals,
   new Waldleute, the clock, the end and `standings`.
-- `group.rs`: the `Group`, `Trail` and `Line` components, `plan_step` (what
-  entering the next tile costs or why it may not), `plan_line`, merging, splitting,
-  and `advance_groups`.
-- `commands.rs`: `Order` (`Line`, `Split`, `Receiver`), `Controls`, and
+- `group.rs`: the `Group` (its Waldleute as `Member`s, the lead, where it
+  gathers), `Trail` and `Line` components, `plan_step` (what entering the next
+  tile costs the lead or why it may not), `plan_line`, `Paths` (cheapest ways over
+  tiles), the file order and splitting.
+- `route.rs`: `route`, the fastest way for a lead to a tile as its rival knows
+  the board, for clicks and for lines that turn out blocked.
+- `moves.rs`: `advance_groups`: the lead, merging, following and gathering, and
+  the trail growing back ([ADR 0007](decisions/0007-spread-each-group-over-the-tiles-of-its-waldleute.md)).
+- `commands.rs`: `Order` (`Line`, `Goto`, `Split`), `Controls`, and
   `apply_commands`.
-- `enclosure.rs`: `Partition` (how one rival's open tiles divide the board),
-  `resolve_enclosures`, and `room`/`is_trapped` (how far a group can still cut).
+- `enclosure.rs`: `Partition` (how one rival's open tiles divide the board, with
+  all water or only rivers as walls), `resolve_enclosures`, and
+  `room`/`is_trapped` (how far a group can still cut).
 - `sight.rs`: each rival's `Sight`: what it sees now and what it has seen.
 - `rng.rs`: SplitMix64 and tile hashes, the only randomness.
 
@@ -59,10 +65,17 @@ the rules, from that rival's `Sight` only, and writes `Controls`.
   font (Bevy's own has no umlauts), shapes drawn in code, text helpers.
 - [view.rs](../../src/view.rs): `BoardView` (top-down or isometric), its projection
   and inverse, and the transforms of the board's root and plane.
-- [ground.rs](../../src/ground.rs): the board as one image, a few pixels per tile,
-  painted from what the player's rival sees, and the flashes of enclosures.
-- [markers.rs](../../src/markers.rs): group discs, selection, danger rings, ships,
-  line dots, the hovered tile and water names.
+- [ground.rs](../../src/ground.rs): the board as square chunks of images,
+  sixteen pixels per tile, painted from what the player's rival sees, with the
+  flashes of enclosures; where each tile's trees stand (`tree_spots`).
+- [art.rs](../../src/art.rs): the sprites, painted in code at start-up into one
+  atlas ([ADR 0006](decisions/0006-paint-the-isometric-sprites-in-code.md)).
+- [scenery.rs](../../src/scenery.rs): the trees, saplings and glints of the
+  isometric view. [people.rs](../../src/people.rs): every Waldmensch and boat, in
+  both views.
+- [markers.rs](../../src/markers.rs): group badges, where each Waldmensch is drawn
+  (`member_at`), selection, danger rings, line dots, the hovered tile and water
+  names.
 - [input.rs](../../src/input.rs): the pointer and keys into commands; selection
   and the line being drawn. [camera.rs](../../src/camera.rs): pan, zoom, centring.
 - [screens.rs](../../src/screens.rs): the `Screen` and `Pause` states, start menu,
@@ -73,16 +86,21 @@ the rules, from that rival's `Sight` only, and writes `Controls`.
 
 1. `PreUpdate`, after Bevy's `InputSystems`, only while playing: the tile under the
    pointer is picked through the active view; the selection follows merges and
-   enclosures and sends `Order::Receiver` when it changes; pointer and keys queue
-   `Order::Line` and `Order::Split` for the player's rival.
+   enclosures; pointer and keys queue
+   `Order::Line` (from the Waldmensch pressed on) and `Order::Split` for the
+   player's rival.
 2. `FixedUpdate` at 64 Hz, while a game runs: computer rivals decide; then, chained
    in `RuleSystems`, `apply_commands`, `advance_groups`, `resolve_enclosures`,
    `grant_waldleute`, `update_sight`, and `finish_step` (step count, rivals out, end).
-3. `Update`: group entities get their discs; line dots are rebuilt when the
-   player's lines or the drawn line change; menus, HUD and camera update.
-4. `PostUpdate`, before transform propagation: the view's transforms, discs placed
-   and interpolated, selection, hover, names; the ground image is repainted where a
-   tile's look changed.
+3. `Update`: group entities get their badge, a boat and a figure for each
+   Waldmensch; a new board gets its trees and glints;
+   line dots are rebuilt when the player's lines, the drawn line or the view
+   change; menus, HUD and camera update.
+4. `PostUpdate`, before transform propagation: the view's transforms, badges placed
+   over the interpolated lead (`Drawn`), then selection and the Waldleute; hover,
+   names;
+   the ground is repainted where a tile's look changed, then each tile's trees
+   follow its look; glints twinkle.
 
 Menus and pausing stop `Time<Virtual>`, so no fixed step runs outside a game.
 
@@ -90,47 +108,87 @@ Menus and pausing stop `Time<Virtual>`, so no fixed step runs outside a game.
 
 A game starts from a `GameSetup`: board, seats, minutes and seed. The seed sows the
 trees (one to three per tile), orders the rivals, and places each rival's five
-Waldleute, each a group of one, within five tiles of a home in its own quarter of
-the board's largest land region. The order decides every tie: commands, moves and
+Waldleute, each a group of one, on random forest tiles anywhere on the board, rival
+by rival, never next to another Waldmensch. The order decides every tie: commands, moves and
 rings resolve rival by rival in that order, then by group number.
 
-A group's line is straight steps from its tile, at most `line_limit(size)` long,
-never onto a lake for a group too big for a ship and never ending in a river.
-Each step the group adds `speed(size)` work towards the next tile; on reaching that
-tile's cost it enters. Cutting forest opens the tile, earns its trees, and adds it
-to the trail; the trail keeps its last `line_limit(size)` tiles open and the oldest
-grows back. Walking on the rival's own open tiles is cheaper. A tile next to (or
-diagonal to) another rival's open tile cannot be cut, nor one another rival's group
-stands on; the line then stops short. Wading into a river costs ten cuts per tile
-and, up front, the trees for every river tile ahead; launching a ship costs twenty
-cuts and its trees and carries at most ten; sailing is cheap; landing cuts as usual.
-A line that ends on another group of the same rival merges the two: sizes and trees
-add, trails join in the order they were cut and are trimmed to the new limit.
-Splitting gives the new group half the Waldleute, that share of the trees, and the
-older part of the trail.
+Every Waldmensch of a group stands on a tile of its own on land, or with others
+on the water ([ADR 0007](decisions/0007-spread-each-group-over-the-tiles-of-its-waldleute.md)).
+A line starts from one of them, the lead: steps of one tile, straight or
+diagonal (a diagonal only between land whose two tiles beside it are land and no
+other rival's clearing, so no step slips through a diagonal ring or past a
+river's corner), at most `line_limit(size)` tiles, never onto a lake for a group
+too big for a ship and never ending in a river. A click asks for the fastest way
+instead (`route.rs`: A* over the costs below, as the rival knows the board:
+others' clearings and margins only where it sees them now, unexplored land as
+forest; never next to the rival's other clearings), and when a line turns out
+blocked the lead finds another way to its end the same way, within
+`line_limit(size)` tiles in all; with no way round it stops short. Each step the lead adds `speed(size)` work towards the
+next tile; on reaching that tile's cost it enters. Cutting forest opens the tile,
+earns its trees and adds it to the trail. Walking on the rival's own open tiles is
+cheaper. A tile next to (or diagonal to) another rival's open tile cannot be cut,
+nor one another rival's Waldmensch stands on; the line then stops short. Wading
+into a river costs ten cuts per tile and, up front, the trees for every river tile
+ahead; launching a ship costs twenty cuts and its trees, carries at most ten, and
+takes the whole group aboard; sailing is cheap; landing cuts as usual.
+
+While the group has a line, the others follow over the clearing and the water
+it crossed, each at most `gap` tiles per place behind the one before it, cutting a
+shortcut only where it is much shorter. Without a line they gather on the tiles
+nearest its end, one to a tile, cutting where they must; water, the edge, other
+rivals' margins and the rival's other clearings bound them. Each trail tile
+remembers the last step a Waldmensch of the group stood on it. The trail keeps
+`line_limit(size)` tiles while the group cuts, and once it has stood still for
+`regrow_after` (eight seconds, so a ring can be drawn in several lines) one tile
+grows back every `regrow_steps`: the one untouched longest, never one a
+Waldmensch stands on, one it gathers on, or one that joins its Waldleute. A piece
+of clearing none of its Waldleute can reach grows back at once, so no clearing is
+ever empty. When the lead cuts next to
+another clearing of the rival, or walks into one, the two groups merge: Waldleute,
+trees, trails and water add. Splitting sends the half furthest back from the lead
+away with that share of the trees; each trail tile goes with the nearer half.
 
 After the moves, each rival whose open tiles changed splits the board again: its
 open tiles and the water are walls, parts are found with straight steps (so rings
 hold diagonally), and within each land region every part smaller than its largest is
-enclosed. Every other rival's group standing on land in such a part changes sides
-with its Waldleute, trees and trail; groups on water are safe. Rivals are tested in
-order until no group changes sides, each group at most once per step.
+enclosed. Every other rival's Waldmensch standing on land in such a part is taken,
+and so is one on a lake in a part enclosed with the rivers alone as water walls;
+those in a river, or across it, stay free. The taken join the encloser's group with
+the most tiles of the ring, with their share of the trees and the trail inside; a
+group with nobody left is gone. Rivals are tested in order until nobody is taken,
+each group at most once per step.
 
-Every `waldmensch_interval`, each rival still in the game gets one more Waldmensch
-for its chosen group or its largest. A rival without groups is out. The game ends
+Every `waldmensch_interval`, each rival still in the game gets one more Waldmensch:
+a group of one on a random forest tile, from a generator seeded by the game's seed
+and step, with no clearing or Waldmensch round it and outside every other rival's
+rings. A rival without groups is out. The game ends
 when its time is up or only one rival is left; the ranking orders rivals by
 Waldleute, then trees, then the order.
 
 ### Drawing
 
-The ground image has six pixels per tile. Unexplored tiles are black, tiles seen
+The ground has sixteen pixels per tile. Unexplored tiles are black, tiles seen
 before are in fog with their waters, other rivals' trails and groups show only
 within sight of the player's groups. Forest in another rival's margin is tinged red,
-so a closing ring shows before it closes; a red ring round a disc marks a group
+so a closing ring shows before it closes; a red ring round a badge marks a group
 that can reach fewer than `trapped_room` tiles, and the HUD warns when it is one of
 the player's. The tile each of the player's trails closes next carries a sapling.
 When a ring closes, the enclosed part and the ring flash in the colour of the rival
 that closed it for six seconds, also under fog, and the HUD lists who enclosed whom.
+
+Water is deeper away from the shore, with foam along it and waves; land along it
+has a bank; cut tiles show the stumps of their trees. Seen from above, forest
+shows its treetops. In the isometric view the ground shows the forest floor and
+the trees stand on it: as many as the tile yields, dimmed in fog, reddened in a
+margin, tinted by a flash, and see-through where they stand in front of open
+ground, so trails stay readable; the sapling stands on the tile that grows back
+next. In both views every Waldmensch stands where the rules put it, gliding from
+tile to tile: whoever cuts swings an axe, the others walk or stand, they wade in
+rivers and sit in a boat on a lake, which appears on the shore while it is being
+built. A badge over the lead shows the group's size, and the selection is a ring
+on the ground round the lead. In the isometric view, line dots and the hovered
+tile are drawn over the trees and water names lie on the water. Draw heights are
+constants in `view.rs`.
 
 ## Code conventions and boundaries
 
@@ -140,8 +198,8 @@ Keep the rules and computer rivals free of rendering and device input so they ru
 headless; presentation reads rule state and writes only `Controls`. Rule positions
 are whole tiles and progress is integer work; nothing in the rules reads the clock
 or an unseeded generator, and iteration that decides an outcome is ordered.
-Presentation may add drawing components (discs, children) to group entities but
-never changes rule components.
+Presentation may add drawing components (badges, children, and figures tied to
+a group by `FigureOf`) to group entities but never changes rule components.
 
 Follow rustfmt and nearby Rust naming and import conventions. Keep pure logic, such
 as rasterizing, partitions, line planning and projections, in plain functions that

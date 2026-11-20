@@ -1,41 +1,128 @@
-//! Groups of Waldleute: where they stand, the line they cut along, and the
-//! trail they leave (ADR 0001).
+//! Groups of Waldleute: where each of them stands, the line the group cuts
+//! along, and the clearing it holds open (ADRs 0001 and 0007).
 //!
-//! A group's position is a whole tile. Each step it adds work towards the next
-//! tile of its line; when the work reaches that tile's cost it enters it. What
-//! it has cut is its trail, and only the last `line_limit(size)` tiles of a
-//! trail stay open: the oldest grows back as a new one is cut.
+//! Every Waldmensch stands on a whole tile of land, or with others on the
+//! water. One of them, the lead, cuts along the group's line; the others
+//! follow over the clearing, never more than [`Tuning::gap`] tiles apart, and
+//! when the line is done they gather as near to its end as they can, cutting
+//! where they must. What a group has cut is its trail: while it cuts, only
+//! `line_limit(size)` tiles stay open, and while it stands still the trail
+//! grows back tile by tile, where its Waldleute have not been for longest, but
+//! never under them or between them. Moving them is in `moves.rs`.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap, VecDeque};
 
 use bevy::prelude::*;
 
 use super::board::{Board, Ground, RivalId, Tile};
-use super::game::{Game, GameEvent, Rival};
 use super::tuning::{Tuning, line_limit};
 
 /// A group's number, counted per game; stable and ordered, unlike entities.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GroupId(pub u32);
 
+/// One Waldmensch: the tile it stands on, the tile it came from and the step
+/// it entered (for drawing the step), and its work towards the next tile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Member {
+    pub tile: Tile,
+    pub from: Tile,
+    pub entered: u64,
+    pub progress: u32,
+    /// The tile its work goes towards.
+    pub toward: Option<Tile>,
+}
+
+impl Member {
+    pub fn at(tile: Tile, step: u64) -> Self {
+        Self {
+            tile,
+            from: tile,
+            entered: step,
+            progress: 0,
+            toward: None,
+        }
+    }
+
+    /// Moves onto `tile` this step.
+    pub fn enter(&mut self, tile: Tile, step: u64) {
+        self.from = self.tile;
+        self.tile = tile;
+        self.entered = step;
+        self.progress = 0;
+        self.toward = None;
+    }
+}
+
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Group {
     pub id: GroupId,
     pub rival: RivalId,
-    /// Waldleute in the group.
-    pub size: u32,
     pub trees: u32,
-    pub tile: Tile,
-    /// The tile it came from, for drawing the step.
-    pub from: Tile,
-    /// The step it entered its tile.
-    pub entered: u64,
-    /// Work done towards the next tile of its line.
-    pub progress: u32,
+    /// The Waldleute; never empty.
+    pub members: Vec<Member>,
+    /// The Waldmensch the line starts from.
+    pub lead: usize,
+    /// Where the group gathers when its line is done.
+    pub target: Tile,
+    /// Steps it has stood without a line, for its trail growing back.
+    pub still: u32,
+    /// Water tiles it crossed that its Waldleute may still need to cross.
+    pub way: Vec<Tile>,
+    /// The tile of its trail that grows back next, when one is about to.
+    pub regrows: Option<Tile>,
+    /// Where its line leads, to find another way there when it is blocked.
+    pub goal: Option<Tile>,
+    /// Tiles its lead may still go towards the goal.
+    pub budget: u32,
 }
 
-/// The tiles a group has cut and that are still open, oldest first, with the
-/// step each was cut.
+impl Group {
+    /// A group of one on `tile`.
+    pub fn new(id: GroupId, rival: RivalId, tile: Tile) -> Self {
+        Self {
+            id,
+            rival,
+            trees: 0,
+            members: vec![Member::at(tile, 0)],
+            lead: 0,
+            target: tile,
+            still: 0,
+            way: Vec::new(),
+            regrows: None,
+            goal: None,
+            budget: 0,
+        }
+    }
+
+    /// Waldleute in the group.
+    pub fn size(&self) -> u32 {
+        self.members.len() as u32
+    }
+
+    pub fn lead(&self) -> &Member {
+        &self.members[self.lead.min(self.members.len() - 1)]
+    }
+
+    /// Where the lead stands: where lines start and the group is shown.
+    pub fn tile(&self) -> Tile {
+        self.lead().tile
+    }
+
+    /// Every tile a Waldmensch of the group stands on.
+    pub fn tiles(&self) -> impl Iterator<Item = Tile> + '_ {
+        self.members.iter().map(|m| m.tile)
+    }
+
+    /// The first Waldmensch on `tile`.
+    pub fn member_on(&self, tile: Tile) -> Option<usize> {
+        self.members.iter().position(|m| m.tile == tile)
+    }
+}
+
+/// The tiles a group holds open, in the order they were cut, each with the
+/// last step a Waldmensch of the group stood on it (cutting it counts).
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Trail(pub VecDeque<(Tile, u64)>);
 
@@ -44,15 +131,23 @@ impl Trail {
         self.0.iter().map(|&(tile, _)| tile)
     }
 
-    /// The tile that grows back when the group cuts its next one.
-    pub fn closes_next(&self, size: u32) -> Option<Tile> {
-        (self.0.len() >= line_limit(size))
-            .then(|| self.0.front().map(|&(tile, _)| tile))
-            .flatten()
+    pub fn contains(&self, tile: Tile) -> bool {
+        self.0.iter().any(|&(t, _)| t == tile)
+    }
+
+    pub fn push(&mut self, tile: Tile, step: u64) {
+        if !self.contains(tile) {
+            self.0.push_back((tile, step));
+        }
+    }
+
+    pub fn remove(&mut self, tile: Tile) {
+        self.0.retain(|&(t, _)| t != tile);
     }
 }
 
-/// The tiles still to go, each one straight step from the one before.
+/// The tiles still to go for the lead, each one step, straight or diagonal,
+/// from the one before.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Line(pub VecDeque<Tile>);
 
@@ -104,13 +199,9 @@ impl Activity {
     }
 }
 
-/// Whether a group cannot be enclosed: it is afloat or crossing a river.
-pub fn is_safe_on_water(board: &Board, group: &Group) -> bool {
-    board.is_water(group.tile)
-}
-
+/// What the group's lead is doing.
 pub fn activity(board: &Board, group: &Group, line: &Line) -> Activity {
-    let here = board.ground(group.tile);
+    let here = board.ground(group.tile());
     match (here, line.0.front().map(|&t| board.ground(t))) {
         (Ground::Lake(_), _) => Activity::Afloat,
         (Ground::River, _) => Activity::InRiver,
@@ -127,11 +218,11 @@ pub fn activity(board: &Board, group: &Group, line: &Line) -> Activity {
     }
 }
 
-/// What it takes the group to enter the next tile of its line now, or `None`
+/// What it takes the lead to enter the next tile of its line now, or `None`
 /// if it may not: another rival's open tile, a forest tile in another rival's
-/// margin, a tile another rival's group stands on, a ship too small, or too
-/// few trees. Wading into a river pays the trees for every river tile ahead
-/// at once, so a group never gets stuck midstream for want of trees.
+/// margin, a tile another rival's Waldmensch stands on, a ship too small, or
+/// too few trees. Wading into a river pays the trees for every river tile
+/// ahead at once, so a group never gets stuck midstream for want of trees.
 pub fn plan_step(
     board: &Board,
     tuning: &Tuning,
@@ -140,11 +231,12 @@ pub fn plan_step(
     other_rival_there: bool,
 ) -> Option<StepPlan> {
     let &to = ahead.front()?;
-    if !board.contains(to) || !group.tile.is_next_to(to) || other_rival_there {
+    let at = group.tile();
+    if !board.can_step(group.rival, at, to) || other_rival_there {
         return None;
     }
     let plan = |kind, work, trees| Some(StepPlan { kind, work, trees });
-    let here = board.ground(group.tile);
+    let here = board.ground(at);
     match board.ground(to) {
         Ground::Land => match board.open(to) {
             Some(rival) if rival == group.rival => plan(Move::Walk, tuning.walk_work, 0),
@@ -168,7 +260,7 @@ pub fn plan_step(
         Ground::Lake(_) => {
             if matches!(here, Ground::Lake(_)) {
                 plan(Move::Sail, tuning.sail_work, 0)
-            } else if group.size <= tuning.ship_capacity && group.trees >= tuning.ship_trees {
+            } else if group.size() <= tuning.ship_capacity && group.trees >= tuning.ship_trees {
                 plan(Move::Launch, tuning.ship_work, tuning.ship_trees)
             } else {
                 None
@@ -177,20 +269,35 @@ pub fn plan_step(
     }
 }
 
-/// The line a group gets for the tiles drawn from it: straight steps from its
-/// tile, at most `line_limit(size)` long, never onto a lake for a group too big
-/// for a ship, and never ending in a river. Whether each tile can be cut is
-/// only known when the group gets there; then the line stops short.
+/// The line a group gets for the tiles drawn from its lead: steps straight or
+/// diagonal, each one tile, at most `line_limit(size)` tiles long, never onto
+/// a lake for a group too big for a ship, and never ending in a river. A
+/// diagonal step that may not be taken is made as two straight ones. Whether
+/// each tile can be cut is only known when the lead gets there.
 pub fn plan_line(board: &Board, tuning: &Tuning, group: &Group, tiles: &[Tile]) -> VecDeque<Tile> {
+    let limit = line_limit(group.size());
+    let rival = group.rival;
     let mut line = VecDeque::new();
-    let mut at = group.tile;
-    for &tile in tiles.iter().take(line_limit(group.size)) {
+    let mut at = group.tile();
+    for &tile in tiles {
         let too_big =
-            matches!(board.ground(tile), Ground::Lake(_)) && group.size > tuning.ship_capacity;
-        if !board.contains(tile) || !at.is_next_to(tile) || too_big {
+            matches!(board.ground(tile), Ground::Lake(_)) && group.size() > tuning.ship_capacity;
+        if line.len() >= limit || too_big {
             break;
         }
-        line.push_back(tile);
+        if board.can_step(rival, at, tile) {
+            line.push_back(tile);
+        } else if at.chebyshev(tile) == 1
+            && line.len() + 2 <= limit
+            && let Some(corner) = [Tile::new(tile.x, at.y), Tile::new(at.x, tile.y)]
+                .into_iter()
+                .find(|&c| board.can_step(rival, at, c) && board.can_step(rival, c, tile))
+        {
+            line.push_back(corner);
+            line.push_back(tile);
+        } else {
+            break;
+        }
         at = tile;
     }
     while line
@@ -202,160 +309,174 @@ pub fn plan_line(board: &Board, tuning: &Tuning, group: &Group, tiles: &[Tile]) 
     line
 }
 
-/// Lets the oldest tiles of a trail grow back until it is `limit` long.
-pub fn trim_trail(board: &mut Board, rival: RivalId, trail: &mut Trail, limit: usize) {
-    while trail.0.len() > limit {
-        let Some((tile, _)) = trail.0.pop_front() else {
-            break;
-        };
-        if board.open(tile) == Some(rival) {
-            board.set_open(tile, None);
-        }
-    }
-}
-
 /// Joins two trails in the order their tiles were cut.
 pub fn merge_trails(a: &Trail, b: &Trail) -> Trail {
     let mut tiles: Vec<(Tile, u64)> = a.0.iter().chain(&b.0).copied().collect();
     tiles.sort_by_key(|&(tile, step)| (step, tile));
+    tiles.dedup_by_key(|&mut (tile, _)| tile);
     Trail(tiles.into())
 }
 
-/// Splits a group in two on its tile. The new group takes half the Waldleute
-/// (rounded down) and that share of the trees. The old group keeps the newest
-/// part of the trail it may hold; the new one takes the part before, up to its
-/// own limit; anything older grows back.
+/// Shortest ways over the board, cheapest first, ties by hops and tile.
+pub struct Paths {
+    /// For each tile reached: its cost, its hops, and the tile before it on
+    /// the way from the nearest source.
+    pub reached: BTreeMap<Tile, (u32, u32, Tile)>,
+}
+
+impl Paths {
+    /// Searches from `sources` over `steps` until every tile in `wanted` is
+    /// reached or `limit` tiles are. `cost` is what entering a tile costs,
+    /// `None` if it cannot be entered; tiles where `through` is false are
+    /// reached but not gone through.
+    pub fn search<S: IntoIterator<Item = Tile>>(
+        sources: &[Tile],
+        steps: impl Fn(Tile) -> S,
+        cost: impl Fn(Tile) -> Option<u32>,
+        through: impl Fn(Tile) -> bool,
+        wanted: &BTreeSet<Tile>,
+        limit: usize,
+    ) -> Self {
+        let mut reached = BTreeMap::new();
+        let mut heap = BinaryHeap::new();
+        for &s in sources {
+            heap.push(Reverse((0u32, 0u32, s, s)));
+        }
+        let mut found = 0;
+        while let Some(Reverse((c, hops, tile, before))) = heap.pop() {
+            if reached.contains_key(&tile) {
+                continue;
+            }
+            reached.insert(tile, (c, hops, before));
+            if wanted.contains(&tile) {
+                found += 1;
+                if found >= wanted.len() {
+                    break;
+                }
+            }
+            if reached.len() >= limit || (hops > 0 && !through(tile)) {
+                continue;
+            }
+            for next in steps(tile) {
+                if !reached.contains_key(&next)
+                    && let Some(step) = cost(next)
+                {
+                    heap.push(Reverse((c + step, hops + 1, next, tile)));
+                }
+            }
+        }
+        Self { reached }
+    }
+
+    pub fn cost(&self, tile: Tile) -> Option<u32> {
+        self.reached.get(&tile).map(|r| r.0)
+    }
+
+    pub fn hops(&self, tile: Tile) -> Option<u32> {
+        self.reached.get(&tile).map(|r| r.1)
+    }
+
+    /// The next tile from `tile` towards the sources.
+    pub fn next(&self, tile: Tile) -> Option<Tile> {
+        self.reached
+            .get(&tile)
+            .map(|r| r.2)
+            .filter(|&before| before != tile)
+    }
+}
+
+/// The members of a group in the order they follow the lead: nearest first
+/// over its clearing and the water it crossed. Members that cannot be reached
+/// come last.
+pub fn file_order(board: &Board, group: &Group, trail: &Trail) -> Vec<usize> {
+    let open: BTreeSet<Tile> = trail.tiles().chain(group.way.iter().copied()).collect();
+    let wanted: BTreeSet<Tile> = group.tiles().collect();
+    let paths = Paths::search(
+        &[group.tile()],
+        |t| board.steps(group.rival, t),
+        |t| open.contains(&t).then_some(1),
+        |_| true,
+        &wanted,
+        usize::MAX,
+    );
+    let mut order: Vec<usize> = (0..group.members.len()).collect();
+    order.sort_by_key(|&i| {
+        let rank = if i == group.lead { 0 } else { 1 };
+        (
+            rank,
+            paths.hops(group.members[i].tile).unwrap_or(u32::MAX),
+            i,
+        )
+    });
+    order
+}
+
+/// Splits a group in two. The new group takes the half of the Waldleute
+/// furthest back from the lead (rounded down) and that share of the trees;
+/// each tile of the trail goes to the group whose Waldmensch stands nearest.
+/// The new group's lead is its Waldmensch nearest the old lead, and it gathers
+/// where that one stands.
 pub fn split_group(
-    board: &mut Board,
+    board: &Board,
     group: &mut Group,
     trail: &mut Trail,
     id: GroupId,
 ) -> Option<(Group, Trail)> {
-    if group.size < 2 {
+    if group.size() < 2 {
         return None;
     }
-    let size = group.size / 2;
-    let trees = group.trees * size / group.size;
-    group.size -= size;
+    let order = file_order(board, group, trail);
+    let take = group.members.len() / 2;
+    let leaving: BTreeSet<usize> = order[order.len() - take..].iter().copied().collect();
+    let new_lead_index = order[order.len() - take];
+    let trees = group.trees * take as u32 / group.size();
     group.trees -= trees;
-    let keep = trail.0.len().min(line_limit(group.size));
-    let mut older: VecDeque<(Tile, u64)> = trail.0.drain(..trail.0.len() - keep).collect();
-    let mut new_trail = Trail(older.split_off(older.len().saturating_sub(line_limit(size))));
-    for (tile, _) in older {
-        board.set_open(tile, None);
-    }
-    trim_trail(board, group.rival, &mut new_trail, line_limit(size));
-    let new = Group {
-        id,
-        size,
-        trees,
-        from: group.tile,
-        progress: 0,
-        ..group.clone()
-    };
-    Some((new, new_trail))
-}
-
-/// Moves every group along its line, in the game's rival order and then by
-/// group number, so two rivals reaching the same tile always resolve the same
-/// way. A group whose line ends on a tile with another group of its own merges
-/// into it.
-pub fn advance_groups(
-    mut commands: Commands,
-    mut board: ResMut<Board>,
-    tuning: Res<Tuning>,
-    mut game: ResMut<Game>,
-    mut rivals: Query<&mut Rival>,
-    mut groups: Query<(Entity, &mut Group, &mut Trail, &mut Line)>,
-) {
-    let mut order: Vec<(usize, GroupId, Entity)> = groups
-        .iter()
-        .map(|(entity, group, ..)| (game.rank(group.rival), group.id, entity))
-        .collect();
-    order.sort();
-    // Where every group stands, kept current as they move.
-    let mut places: Vec<(Entity, GroupId, RivalId, Tile)> = groups
-        .iter()
-        .map(|(entity, group, ..)| (entity, group.id, group.rival, group.tile))
-        .collect();
-    let mut merged = BTreeSet::new();
-    let step = game.step;
-
-    for (_, _, entity) in order {
-        if merged.contains(&entity) {
-            continue;
-        }
-        let Ok((_, mut group, mut trail, mut line)) = groups.get_mut(entity) else {
-            continue;
-        };
-        let Some(&next) = line.0.front() else {
-            group.progress = 0;
-            continue;
-        };
-        let rival = group.rival;
-        let other_there = places
-            .iter()
-            .any(|&(e, _, r, t)| t == next && r != rival && !merged.contains(&e));
-        let Some(plan) = plan_step(&board, &tuning, &group, &line.0, other_there) else {
-            // The line runs into something it may not cross: it stops short.
-            line.0.clear();
-            group.progress = 0;
-            continue;
-        };
-        group.progress += tuning.speed(group.size);
-        if group.progress < plan.work {
-            continue;
-        }
-        group.progress = 0;
-        line.0.pop_front();
-        group.from = group.tile;
-        group.tile = next;
-        group.entered = step;
-        group.trees -= plan.trees;
-        if plan.kind == Move::Cut {
-            board.set_open(next, Some(rival));
-            trail.0.push_back((next, step));
-            group.trees += board.trees(next);
-            trim_trail(&mut board, rival, &mut trail, line_limit(group.size));
-        }
-        if let Some(place) = places.iter_mut().find(|p| p.0 == entity) {
-            place.3 = next;
-        }
-        if !line.0.is_empty() || board.is_water(next) {
-            continue;
-        }
-        let target = places
-            .iter()
-            .filter(|&&(e, _, r, t)| e != entity && r == rival && t == next && !merged.contains(&e))
-            .min_by_key(|&&(_, id, ..)| id)
-            .map(|&(e, ..)| e);
-        let Some(target) = target else {
-            continue;
-        };
-        let Ok([(_, mover, mover_trail, _), (_, mut into, mut into_trail, _)]) =
-            groups.get_many_mut([entity, target])
-        else {
-            continue;
-        };
-        into.size += mover.size;
-        into.trees += mover.trees;
-        *into_trail = merge_trails(&into_trail, &mover_trail);
-        let limit = line_limit(into.size);
-        trim_trail(&mut board, rival, &mut into_trail, limit);
-        for mut owner in &mut rivals {
-            if owner.id == rival && owner.receiver == Some(mover.id) {
-                owner.receiver = Some(into.id);
+    let lead_tile = group.tile();
+    let mut staying = Vec::new();
+    let mut moving = Vec::new();
+    let mut new_lead = 0;
+    for (i, member) in group.members.iter().enumerate() {
+        if leaving.contains(&i) {
+            if i == new_lead_index {
+                new_lead = moving.len();
             }
+            moving.push(*member);
+        } else {
+            staying.push(*member);
         }
-        game.events.push(GameEvent::Merged {
-            step,
-            rival,
-            from: mover.id,
-            into: into.id,
-        });
-        merged.insert(entity);
-        commands.entity(entity).despawn();
     }
+    group.members = staying;
+    group.lead = group
+        .members
+        .iter()
+        .position(|m| m.tile == lead_tile)
+        .unwrap_or(0);
+    let mut new = Group {
+        id,
+        rival: group.rival,
+        trees,
+        members: moving,
+        lead: new_lead,
+        target: lead_tile,
+        still: 0,
+        way: group.way.clone(),
+        regrows: None,
+        goal: None,
+        budget: 0,
+    };
+    new.target = new.tile();
+    let nearest = |tile: Tile, g: &Group| {
+        g.tiles()
+            .map(|t| t.chebyshev(tile))
+            .min()
+            .unwrap_or(i32::MAX)
+    };
+    let (keep, give): (VecDeque<_>, VecDeque<_>) = trail
+        .0
+        .iter()
+        .partition(|&&(tile, _)| nearest(tile, group) <= nearest(tile, &new));
+    *trail = Trail(keep);
+    Some((new, Trail(give)))
 }
 
 #[cfg(test)]
@@ -363,16 +484,13 @@ mod tests {
     use super::*;
 
     fn group_at(tile: Tile, size: u32) -> Group {
-        Group {
-            id: GroupId(0),
-            rival: RivalId(0),
-            size,
-            trees: 0,
-            tile,
-            from: tile,
-            entered: 0,
-            progress: 0,
+        let mut group = Group::new(GroupId(0), RivalId(0), tile);
+        for k in 1..size {
+            group
+                .members
+                .push(Member::at(Tile::new(tile.x - k as i32, tile.y), 0));
         }
+        group
     }
 
     #[test]
@@ -384,6 +502,19 @@ mod tests {
         assert_eq!(plan_line(&board, &tuning, &group, &tiles).len(), 10);
         let jump = [Tile::new(1, 0), Tile::new(3, 0)];
         assert_eq!(plan_line(&board, &tuning, &group, &jump).len(), 1);
+    }
+
+    #[test]
+    fn a_diagonal_is_one_tile_unless_it_would_slip_past_water() {
+        let board = Board::from_rows(&["....", "....", "~...", "...."]);
+        let tuning = Tuning::default();
+        let group = group_at(Tile::new(0, 0), 1);
+        let diagonal = [Tile::new(1, 1), Tile::new(2, 2), Tile::new(3, 3)];
+        assert_eq!(plan_line(&board, &tuning, &group, &diagonal).len(), 3);
+        // From (0, 1) to (1, 2) would pass the river's corner at (0, 2).
+        let from = group_at(Tile::new(0, 1), 1);
+        let line = plan_line(&board, &tuning, &from, &[Tile::new(1, 2)]);
+        assert_eq!(line, VecDeque::from([Tile::new(1, 1), Tile::new(1, 2)]));
     }
 
     #[test]
@@ -417,7 +548,7 @@ mod tests {
         );
         // Diagonally next to the other rival's open tile: in its margin.
         assert_eq!(step(&board, &group, Tile::new(2, 0)), None);
-        group.tile = Tile::new(3, 0);
+        group.members[0].tile = Tile::new(3, 0);
         assert_eq!(
             step(&board, &group, Tile::new(4, 0)),
             None,
@@ -441,7 +572,7 @@ mod tests {
         group.trees = tuning.river_trees * 3;
         let plan = plan_step(&board, &tuning, &group, &across, false).expect("can cross");
         assert_eq!(plan.trees, tuning.river_trees * 3);
-        group.tile = Tile::new(1, 0);
+        group.members[0].tile = Tile::new(1, 0);
         group.trees = 0;
         let midstream: VecDeque<Tile> = (2..5).map(|x| Tile::new(x, 0)).collect();
         assert_eq!(
@@ -451,24 +582,38 @@ mod tests {
     }
 
     #[test]
-    fn splitting_shares_trees_and_trail() {
-        let mut board = Board::from_rows(&[&".".repeat(40)]);
-        let rival = RivalId(0);
-        let mut trail = Trail::default();
-        for x in 0..30 {
-            board.set_open(Tile::new(x, 0), Some(rival));
-            trail.0.push_back((Tile::new(x, 0), x as u64));
-        }
-        let mut group = group_at(Tile::new(29, 0), 4);
+    fn the_file_follows_the_clearing_from_the_lead() {
+        // Lead at (6, 0), the others behind it along the trail.
+        let mut group = group_at(Tile::new(6, 0), 3);
+        group.members.swap(0, 2);
+        group.lead = 2;
+        let trail = Trail((0..=6).map(|x| (Tile::new(x, 0), x as u64)).collect());
+        let board = Board::from_rows(&[&".".repeat(10)]);
+        let order = file_order(&board, &group, &trail);
+        let tiles: Vec<i32> = order.iter().map(|&i| group.members[i].tile.x).collect();
+        assert_eq!(tiles, vec![6, 5, 4]);
+    }
+
+    #[test]
+    fn splitting_sends_the_rear_half_away_with_its_share() {
+        let mut group = group_at(Tile::new(9, 0), 5);
         group.trees = 10;
+        let mut trail = Trail((0..=9).map(|x| (Tile::new(x, 0), x as u64)).collect());
+        let board = Board::from_rows(&[&".".repeat(12)]);
         let (new, new_trail) =
-            split_group(&mut board, &mut group, &mut trail, GroupId(1)).expect("splits");
-        assert_eq!((group.size, new.size), (2, 2));
-        assert_eq!((group.trees, new.trees), (5, 5));
-        assert_eq!(trail.0.len(), 20);
-        assert_eq!(new_trail.0.len(), 10);
-        assert_eq!(trail.0.front().map(|t| t.0), Some(Tile::new(10, 0)));
-        assert_eq!(new_trail.0.front().map(|t| t.0), Some(Tile::new(0, 0)));
-        assert_eq!(new.tile, group.tile);
+            split_group(&board, &mut group, &mut trail, GroupId(1)).expect("splits");
+        assert_eq!((group.size(), new.size()), (3, 2));
+        assert_eq!((group.trees, new.trees), (6, 4));
+        assert_eq!(group.tile(), Tile::new(9, 0), "the lead stays");
+        let rear: Vec<i32> = new.tiles().map(|t| t.x).collect();
+        assert!(rear.contains(&5) && rear.contains(&6), "{rear:?}");
+        assert_eq!(
+            new.tile(),
+            Tile::new(6, 0),
+            "its lead is nearest the old one"
+        );
+        assert_eq!(trail.0.len() + new_trail.0.len(), 10);
+        assert!(new_trail.contains(Tile::new(0, 0)));
+        assert!(trail.contains(Tile::new(9, 0)));
     }
 }

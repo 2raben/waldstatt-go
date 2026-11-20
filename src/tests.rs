@@ -9,6 +9,7 @@ use bevy::time::TimeUpdateStrategy;
 
 use crate::ai::ComputerRivalsPlugin;
 use crate::rules::game::{EndReason, GameEvent, STEPS_PER_SECOND};
+use crate::rules::group::Member;
 use crate::rules::waters::{BOARDS, build_board};
 use crate::rules::{
     Board, Controls, Game, GameSetup, Group, GroupId, Line, Order, RivalId, RulesPlugin, Seat,
@@ -61,9 +62,43 @@ impl Sim {
             .send(rival, order);
     }
 
+    /// A line from the group's lead.
     fn line(&mut self, rival: RivalId, group: GroupId, tiles: &[(i32, i32)]) {
+        let from = self.group(group).tile();
+        self.line_from(rival, group, (from.x, from.y), tiles);
+    }
+
+    /// A line from the group's Waldmensch on `from`.
+    fn line_from(
+        &mut self,
+        rival: RivalId,
+        group: GroupId,
+        from: (i32, i32),
+        tiles: &[(i32, i32)],
+    ) {
         let tiles = tiles.iter().map(|&(x, y)| Tile::new(x, y)).collect();
-        self.send(rival, Order::Line { group, tiles });
+        let from = Tile::new(from.0, from.1);
+        self.send(rival, Order::Line { group, from, tiles });
+    }
+
+    /// Adds Waldleute to a group on these tiles, opened for its rival.
+    fn add_members(&mut self, id: GroupId, tiles: &[(i32, i32)]) {
+        let rival = self.group(id).rival;
+        for &(x, y) in tiles {
+            let tile = Tile::new(x, y);
+            if !self.board().is_water(tile) {
+                self.board_mut().set_open(tile, Some(rival));
+            }
+        }
+        let world = self.app.world_mut();
+        let mut query = world.query::<(&mut Group, &mut Trail)>();
+        if let Some((mut group, mut trail)) = query.iter_mut(world).find(|(g, _)| g.id == id) {
+            for &(x, y) in tiles {
+                let tile = Tile::new(x, y);
+                group.members.push(Member::at(tile, 0));
+                trail.push(tile, 0);
+            }
+        }
     }
 
     fn groups(&mut self) -> Vec<(Group, Trail, Line)> {
@@ -121,7 +156,7 @@ impl Sim {
     fn until_at(&mut self, id: GroupId, tile: (i32, i32), limit: u64) -> u64 {
         for step in 1..=limit {
             self.steps(1);
-            if self.group(id).tile == Tile::new(tile.0, tile.1) {
+            if self.group(id).tile() == Tile::new(tile.0, tile.1) {
                 return step;
             }
         }
@@ -175,6 +210,12 @@ fn rows(field: &[String]) -> Vec<&str> {
 const FIRST: GroupId = GroupId(1);
 const SECOND: GroupId = GroupId(2);
 
+fn tiles_of(group: &Group) -> Vec<(i32, i32)> {
+    let mut tiles: Vec<(i32, i32)> = group.tiles().map(|t| (t.x, t.y)).collect();
+    tiles.sort();
+    tiles
+}
+
 #[test]
 fn cuts_along_a_line_one_tile_after_another() {
     let f = field(30, 1);
@@ -183,30 +224,30 @@ fn cuts_along_a_line_one_tile_after_another() {
     let per_tile = u64::from(tuning.cut_work.div_ceil(tuning.speed(1)));
     sim.line(A, FIRST, &[(1, 0), (2, 0), (3, 0)]);
     sim.steps(per_tile - 1);
-    assert_eq!(sim.group(FIRST).tile, Tile::new(0, 0));
+    assert_eq!(sim.group(FIRST).tile(), Tile::new(0, 0));
     sim.steps(1);
-    assert_eq!(sim.group(FIRST).tile, Tile::new(1, 0));
+    assert_eq!(sim.group(FIRST).tile(), Tile::new(1, 0));
     assert_eq!(sim.board().open(Tile::new(1, 0)), Some(A));
     assert_eq!(sim.group(FIRST).trees, sim.board().trees(Tile::new(1, 0)));
     sim.steps(2 * per_tile);
-    assert_eq!(sim.group(FIRST).tile, Tile::new(3, 0));
+    assert_eq!(sim.group(FIRST).tile(), Tile::new(3, 0));
     assert!(sim.groups()[0].2.0.is_empty(), "the line is done");
 }
 
 #[test]
 fn a_bigger_group_cuts_faster() {
     let f = field(30, 3);
-    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0), (0, 2)]]));
-    sim.set_group(SECOND, |g| g.size = 4);
-    sim.line(A, FIRST, &[(1, 0)]);
-    sim.line(A, SECOND, &[(1, 2)]);
-    let big = sim.until_at(SECOND, (1, 2), 200);
-    let small = big + sim.until_at(FIRST, (1, 0), 200);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(3, 0), (3, 2)]]));
+    sim.add_members(SECOND, &[(2, 2), (1, 2), (0, 2)]);
+    sim.line(A, FIRST, &[(4, 0)]);
+    sim.line(A, SECOND, &[(4, 2)]);
+    let big = sim.until_at(SECOND, (4, 2), 200);
+    let small = big + sim.until_at(FIRST, (4, 0), 200);
     assert!(small > 2 * big, "one alone takes {small} steps, four {big}");
 }
 
 #[test]
-fn only_the_last_tiles_of_a_trail_stay_open() {
+fn only_the_last_tiles_of_a_trail_stay_open_while_cutting() {
     let f = field(30, 1);
     let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0)]]));
     let line: Vec<(i32, i32)> = (1..=10).map(|x| (x, 0)).collect();
@@ -216,11 +257,84 @@ fn only_the_last_tiles_of_a_trail_stay_open() {
     assert_eq!(sim.trail(FIRST).0.len(), 10);
     assert_eq!(sim.board().open(Tile::new(0, 0)), None);
     assert_eq!(sim.board().open(Tile::new(1, 0)), Some(A));
-    assert_eq!(sim.trail(FIRST).closes_next(1), Some(Tile::new(1, 0)));
+    // The sapling is worked out four times a second.
+    sim.steps(16);
+    assert_eq!(sim.group(FIRST).regrows, Some(Tile::new(1, 0)));
 }
 
 #[test]
-fn a_line_stops_short_at_another_rivals_margin() {
+fn standing_still_the_trail_grows_back_to_the_group() {
+    let f = field(30, 1);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0)]]));
+    let every = u64::from(sim.tuning().regrow_steps);
+    let after = u64::from(sim.tuning().regrow_after);
+    let line: Vec<(i32, i32)> = (1..=6).map(|x| (x, 0)).collect();
+    sim.line(A, FIRST, &line);
+    sim.until_at(FIRST, (6, 0), 2000);
+    assert_eq!(sim.trail(FIRST).0.len(), 7);
+    sim.steps(after - 2);
+    assert_eq!(sim.trail(FIRST).0.len(), 7, "not at once");
+    sim.steps(every * 2 + 1);
+    assert_eq!(
+        sim.trail(FIRST).0.len(),
+        4,
+        "one tile a while, the one untouched longest"
+    );
+    assert_eq!(sim.board().open(Tile::new(2, 0)), None);
+    assert_eq!(sim.board().open(Tile::new(3, 0)), Some(A));
+    sim.steps(every * 10);
+    let trail: Vec<Tile> = sim.trail(FIRST).tiles().collect();
+    assert_eq!(
+        trail,
+        vec![Tile::new(6, 0)],
+        "back to the group, and no further"
+    );
+}
+
+#[test]
+fn a_click_sends_the_group_the_fastest_way_diagonally() {
+    let f = field(20, 20);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0)]]));
+    let tuning = sim.tuning();
+    let per_tile = u64::from(tuning.cut_work.div_ceil(tuning.speed(1)));
+    let goto = |sim: &mut Sim, x, y| {
+        let from = sim.group(FIRST).tile();
+        sim.send(
+            A,
+            Order::Goto {
+                group: FIRST,
+                from,
+                to: Tile::new(x, y),
+            },
+        );
+    };
+    goto(&mut sim, 5, 5);
+    let took = sim.until_at(FIRST, (5, 5), 2000);
+    assert!(
+        took <= 5 * per_tile + 2,
+        "five diagonal tiles: {took} steps"
+    );
+    // No further than the tiles a group of one may go: ten.
+    goto(&mut sim, 19, 5);
+    sim.steps(20 * per_tile);
+    assert_eq!(sim.group(FIRST).tile(), Tile::new(15, 5));
+}
+
+#[test]
+fn a_blocked_line_finds_another_way_to_its_end() {
+    let f = field(14, 7);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 3)], vec![(6, 3)]]));
+    sim.add_members(FIRST, &[(0, 4)]);
+    let line: Vec<(i32, i32)> = (1..=11).map(|x| (x, 3)).collect();
+    sim.line(A, FIRST, &line);
+    sim.until_at(FIRST, (11, 3), 3000);
+    for x in [5, 7] {
+        assert_eq!(sim.board().open(Tile::new(x, 3)), None, "round B's margin");
+    }
+}
+
+#[test]
+fn a_line_with_no_way_round_stops_short() {
     let f = field(12, 3);
     let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0)], vec![(6, 1)]]));
     sim.line(
@@ -231,47 +345,99 @@ fn a_line_stops_short_at_another_rivals_margin() {
     sim.steps(2000);
     let group = sim.group(FIRST);
     // (5, 0) touches B's tile (6, 1) diagonally.
-    assert_eq!(group.tile, Tile::new(4, 0));
+    assert_eq!(group.tile(), Tile::new(4, 0));
     assert!(sim.groups()[0].2.0.is_empty());
     assert_eq!(sim.board().open(Tile::new(5, 0)), None);
 }
 
 #[test]
-fn a_group_sent_onto_another_merges_with_it() {
+fn cutting_next_to_another_clearing_merges_the_groups() {
     let f = field(30, 1);
-    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0), (3, 0)]]));
-    sim.line(A, FIRST, &[(1, 0), (2, 0), (3, 0)]);
-    sim.steps(1000);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0), (4, 0)]]));
+    sim.line(A, FIRST, &[(1, 0), (2, 0)]);
+    sim.until_at(FIRST, (2, 0), 1000);
+    assert_eq!(sim.groups().len(), 2, "not yet touching");
+    sim.line(A, FIRST, &[(3, 0)]);
+    for _ in 0..1000 {
+        sim.steps(1);
+        if sim.groups().len() == 1 {
+            break;
+        }
+    }
     let groups = sim.groups();
     assert_eq!(groups.len(), 1);
     let (group, trail, _) = &groups[0];
-    assert_eq!(
-        group.id, SECOND,
-        "the group sent merges into the one it reached"
-    );
-    assert_eq!(group.size, 2);
-    // Both first tiles, and the two cut on the way.
-    assert_eq!(trail.0.len(), 4);
+    assert_eq!(group.id, FIRST, "the group that cut takes the other in");
+    assert_eq!(group.size(), 2);
+    assert_eq!(trail.0.len(), 5);
     assert!(sim.game().events.iter().any(
-        |e| matches!(e, GameEvent::Merged { from, into, .. } if *from == FIRST && *into == SECOND)
+        |e| matches!(e, GameEvent::Merged { from, into, .. } if *from == SECOND && *into == FIRST)
     ));
 }
 
 #[test]
-fn splitting_shares_the_group() {
+fn the_waldleute_follow_whoever_leads() {
+    let f = field(10, 8);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(5, 0)]]));
+    sim.add_members(FIRST, &[(4, 0), (3, 0), (2, 0)]);
+    // Drag the one in the middle south.
+    sim.line_from(A, FIRST, (3, 0), &[(3, 1), (3, 2), (3, 3), (3, 4), (3, 5)]);
+    sim.steps(1);
+    assert_eq!(sim.group(FIRST).tile(), Tile::new(3, 0), "it leads now");
+    sim.until_at(FIRST, (3, 5), 3000);
+    sim.steps(STEPS_PER_SECOND * 10);
+    let group = sim.group(FIRST);
+    assert_eq!(group.tile(), Tile::new(3, 5));
+    for (x, y) in tiles_of(&group) {
+        assert!(
+            (x - 3).abs() + (y - 5).abs() <= 2,
+            "gathered round the end: {x},{y}"
+        );
+    }
+}
+
+#[test]
+fn standing_still_they_gather_round_the_end_of_their_line() {
+    let f = field(20, 9);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(4, 4)]]));
+    sim.add_members(FIRST, &[(3, 4), (2, 4), (1, 4), (0, 4)]);
+    let line: Vec<(i32, i32)> = (5..=12).map(|x| (x, 4)).collect();
+    sim.line(A, FIRST, &line);
+    sim.until_at(FIRST, (12, 4), 3000);
+    sim.steps(STEPS_PER_SECOND * 30);
+    let group = sim.group(FIRST);
+    let expected = vec![(11, 4), (12, 3), (12, 4), (12, 5), (13, 4)];
+    assert_eq!(tiles_of(&group), expected, "as near to the end as they can");
+    let mut trail: Vec<(i32, i32)> = sim.trail(FIRST).tiles().map(|t| (t.x, t.y)).collect();
+    trail.sort();
+    assert_eq!(trail, expected, "and the rest of the trail has grown back");
+}
+
+#[test]
+fn gathering_stops_at_another_clearing_of_the_same_rival() {
+    let f = field(12, 5);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(5, 2), (7, 2)]]));
+    sim.add_members(FIRST, &[(4, 2), (3, 2)]);
+    sim.steps(STEPS_PER_SECOND * 10);
+    assert_eq!(sim.groups().len(), 2, "gathering never merges");
+    // (6, 2) touches the second group, so the first gathers round its other sides.
+    assert_eq!(sim.board().open(Tile::new(6, 2)), None);
+    assert!(tiles_of(&sim.group(FIRST)).contains(&(5, 2)));
+}
+
+#[test]
+fn splitting_sends_the_rear_half_away() {
     let f = field(30, 1);
-    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0)]]));
-    sim.set_group(FIRST, |g| {
-        g.size = 5;
-        g.trees = 10;
-    });
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(4, 0)]]));
+    sim.add_members(FIRST, &[(3, 0), (2, 0), (1, 0), (0, 0)]);
+    sim.set_group(FIRST, |g| g.trees = 10);
     sim.send(A, Order::Split { group: FIRST });
     sim.steps(1);
     let groups = sim.groups();
     assert_eq!(groups.len(), 2);
-    assert_eq!((groups[0].0.size, groups[1].0.size), (3, 2));
+    assert_eq!((groups[0].0.size(), groups[1].0.size()), (3, 2));
     assert_eq!((groups[0].0.trees, groups[1].0.trees), (6, 4));
-    assert_eq!(groups[0].0.tile, groups[1].0.tile);
+    assert_eq!(tiles_of(&groups[1].0), vec![(0, 0), (1, 0)]);
 }
 
 /// A 12 × 12 field where A has opened a ring round B's group at (5, 5),
@@ -293,8 +459,9 @@ fn ring_with_a_gap() -> Sim {
 }
 
 #[test]
-fn closing_a_ring_wins_the_group_inside() {
+fn closing_a_ring_round_a_clearing_takes_the_whole_group() {
     let mut sim = ring_with_a_gap();
+    sim.add_members(SECOND, &[(4, 5), (4, 4)]);
     sim.set_group(SECOND, |g| g.trees = 7);
     sim.steps(5);
     assert_eq!(sim.group(SECOND).rival, B, "the open ring encloses nobody");
@@ -303,29 +470,38 @@ fn closing_a_ring_wins_the_group_inside() {
     assert_eq!(sim.group(SECOND).rival, B, "one tile is still open");
     sim.line(A, FIRST, &[(8, 5)]);
     sim.until_at(FIRST, (8, 5), 200);
-    let won = sim.group(SECOND);
-    assert_eq!(won.rival, A, "the group changes sides");
-    assert_eq!(won.trees, 7, "with its trees");
-    assert_eq!(sim.board().open(Tile::new(5, 5)), Some(A), "and its trail");
+    let groups = sim.groups();
+    assert_eq!(groups.len(), 1, "B's group is gone");
+    let won = &groups[0].0;
+    assert_eq!(won.id, FIRST, "into the group that closed the ring");
+    assert_eq!(won.size(), 4);
+    assert!(won.trees >= 7, "with its trees");
+    assert_eq!(
+        sim.board().open(Tile::new(5, 5)),
+        Some(A),
+        "and its clearing"
+    );
     let enclosed = sim.game().events.iter().find_map(|e| match e {
         GameEvent::Enclosed {
             by,
             from,
+            into,
+            size,
             part,
             ring,
             ..
-        } => Some((*by, *from, part.len(), ring.len())),
+        } => Some((*by, *from, *into, *size, part.len(), ring.len())),
         _ => None,
     });
-    let (by, from, part, ring) = enclosed.expect("the enclosure is recorded");
-    assert_eq!((by, from), (A, B));
+    let (by, from, into, size, part, ring) = enclosed.expect("the enclosure is recorded");
+    assert_eq!((by, from, into, size), (A, B, FIRST, 3));
     assert_eq!(part, 25);
     assert!(ring >= 24, "the ring round it is recorded: {ring}");
     // B has no Waldleute left: the game is over.
     sim.steps(1);
     let outcome = sim.game().outcome.clone().expect("the game ended");
     assert_eq!(outcome.reason, EndReason::LastRival(A));
-    assert_eq!(outcome.ranking[0].waldleute, 2);
+    assert_eq!(outcome.ranking[0].waldleute, 4);
 }
 
 #[test]
@@ -334,11 +510,54 @@ fn a_trapped_group_cannot_cut_its_way_out() {
     // B tries to leave through the gap, which lies in A's margin.
     sim.line(B, SECOND, &[(6, 5), (7, 5), (8, 5), (9, 5)]);
     sim.steps(1000);
-    assert_eq!(sim.group(SECOND).tile, Tile::new(6, 5));
+    assert_eq!(sim.group(SECOND).tile(), Tile::new(6, 5));
 }
 
 #[test]
-fn a_group_on_water_is_safe_but_one_building_on_the_shore_is_not() {
+fn waldleute_in_a_river_stay_free_when_the_bank_is_enclosed() {
+    let ground = [
+        "......~.....",
+        "..####~.....",
+        "..#...~.....",
+        "..#...~.....",
+        "..#...~.....",
+        "..#...~.....",
+        "..#...~.....",
+        "..##..~.....",
+        "......~.....",
+    ];
+    let plain: Vec<String> = ground.iter().map(|r| r.replace('#', ".")).collect();
+    let mut sim = Sim::new(setup(&rows(&plain), vec![vec![(4, 8)], vec![(5, 4)]]));
+    {
+        let mut board = sim.board_mut();
+        for (y, row) in ground.iter().enumerate() {
+            for (x, c) in row.chars().enumerate() {
+                if c == '#' {
+                    board.set_open(Tile::new(x as i32, y as i32), Some(A));
+                }
+            }
+        }
+    }
+    // B's group wades: its lead in the river, one still on the bank.
+    sim.set_group(SECOND, |g| {
+        g.members.push(Member::at(Tile::new(6, 4), 0));
+        g.lead = 1;
+        g.way.push(Tile::new(6, 4));
+    });
+    sim.line(A, FIRST, &[(4, 7), (5, 7)]);
+    sim.until_at(FIRST, (5, 7), 1000);
+    let b = sim.group(SECOND);
+    assert_eq!(b.rival, B);
+    assert_eq!(
+        tiles_of(&b),
+        vec![(6, 4)],
+        "the one in the river stays free"
+    );
+    assert_eq!(sim.group(FIRST).size(), 2, "the one on the bank is taken");
+}
+
+#[test]
+fn a_ring_round_a_lake_takes_the_boat_too() {
     let rows_ = [
         "............",
         "............",
@@ -369,17 +588,17 @@ fn a_group_on_water_is_safe_but_one_building_on_the_shore_is_not() {
     let tuning = sim.tuning();
     sim.set_group(FIRST, |g| g.trees = 20);
     sim.set_group(SECOND, |g| g.trees = tuning.ship_trees);
-    sim.set_group(GroupId(3), |g| g.trees = tuning.ship_trees);
-    // The second group takes to the lake; the third keeps building on the shore.
     sim.line(B, SECOND, &[(4, 5), (5, 5)]);
     sim.until_at(SECOND, (4, 5), 2000);
     assert_eq!(sim.group(SECOND).trees, 0, "the ship cost its trees");
-    sim.line(B, GroupId(3), &[(6, 5), (5, 5)]);
-    sim.steps(10);
     sim.line(A, FIRST, &[(4, 1), (4, 2), (5, 2)]);
     sim.until_at(FIRST, (5, 2), 400);
-    assert_eq!(sim.group(SECOND).rival, B, "afloat: safe");
-    assert_eq!(sim.group(GroupId(3)).rival, A, "on the shore: enclosed");
+    let groups = sim.groups();
+    assert!(
+        groups.iter().all(|(g, ..)| g.rival == A),
+        "the boat and the group on the shore are taken"
+    );
+    assert_eq!(sim.group(FIRST).size(), 3);
 }
 
 #[test]
@@ -389,7 +608,7 @@ fn wading_across_a_river_costs_time_and_trees() {
     sim.line(A, FIRST, &[(2, 0), (3, 0)]);
     sim.steps(10);
     assert_eq!(
-        sim.group(FIRST).tile,
+        sim.group(FIRST).tile(),
         Tile::new(1, 0),
         "no trees to wade with"
     );
@@ -402,32 +621,50 @@ fn wading_across_a_river_costs_time_and_trees() {
 }
 
 #[test]
-fn a_ship_carries_at_most_its_capacity() {
-    let mut sim = Sim::new(setup(&[".111."], vec![vec![(0, 0)]]));
-    let capacity = sim.tuning().ship_capacity;
-    sim.set_group(FIRST, |g| {
-        g.size = capacity + 1;
-        g.trees = 100;
-    });
-    sim.line(A, FIRST, &[(1, 0), (2, 0), (3, 0), (4, 0)]);
-    sim.steps(1);
-    assert!(sim.groups()[0].2.0.is_empty(), "too many for a ship");
-    sim.set_group(FIRST, |g| g.size = capacity);
-    sim.line(A, FIRST, &[(1, 0), (2, 0), (3, 0), (4, 0)]);
-    sim.until_at(FIRST, (4, 0), 5000);
+fn the_whole_group_boards_the_ship_and_follows_ashore() {
+    let ground = ["...........", "....111....", "..........."];
+    let mut sim = Sim::new(setup(&ground, vec![vec![(3, 1)]]));
+    sim.add_members(FIRST, &[(2, 1), (1, 1)]);
+    sim.set_group(FIRST, |g| g.trees = 100);
+    sim.line(A, FIRST, &[(4, 1), (5, 1), (6, 1), (7, 1)]);
+    sim.until_at(FIRST, (4, 1), 5000);
+    assert_eq!(tiles_of(&sim.group(FIRST)), vec![(4, 1); 3], "all aboard");
+    sim.until_at(FIRST, (7, 1), 5000);
+    sim.steps(STEPS_PER_SECOND * 10);
+    let group = sim.group(FIRST);
+    assert!(
+        group.tiles().all(|t| !sim.board().is_water(t)),
+        "all ashore: {:?}",
+        tiles_of(&group)
+    );
 }
 
 #[test]
-fn new_waldleute_join_the_chosen_group() {
-    let f = field(30, 3);
-    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0), (0, 2)]]));
+fn a_new_waldmensch_turns_up_somewhere_in_the_forest() {
+    let f = field(30, 30);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0)], vec![(29, 29)]]));
     let interval = sim.tuning().waldmensch_interval;
-    sim.send(A, Order::Receiver { group: SECOND });
     sim.steps(interval);
-    assert_eq!(sim.group(SECOND).size, 1);
+    assert_eq!(sim.groups().len(), 2);
     sim.steps(1);
-    assert_eq!(sim.group(SECOND).size, 2);
-    assert_eq!(sim.group(FIRST).size, 1);
+    let groups = sim.groups();
+    assert_eq!(groups.len(), 4, "one more for each rival");
+    for rival in [A, B] {
+        let fresh: Vec<&Group> = groups
+            .iter()
+            .map(|(g, ..)| g)
+            .filter(|g| g.rival == rival && g.id.0 > 2)
+            .collect();
+        assert_eq!(fresh.len(), 1);
+        let tile = fresh[0].tile();
+        assert_eq!(fresh[0].size(), 1, "a group of one");
+        assert_eq!(sim.board().open(tile), Some(rival));
+        for (other, ..) in &groups {
+            if other.id != fresh[0].id {
+                assert!(other.tile().chebyshev(tile) > 1, "away from everyone");
+            }
+        }
+    }
 }
 
 #[test]
@@ -436,7 +673,7 @@ fn the_game_ends_when_its_time_is_up() {
     let mut game = setup(&rows(&f), vec![vec![(0, 0)], vec![(20, 2), (25, 2)]]);
     game.minutes = 1;
     let mut sim = Sim::new(game);
-    sim.set_group(FIRST, |g| g.size = 2);
+    sim.add_members(FIRST, &[(1, 0)]);
     sim.set_group(GroupId(3), |g| g.trees = 4);
     sim.steps(60 * STEPS_PER_SECOND - 1);
     assert!(sim.game().outcome.is_none());
@@ -452,27 +689,33 @@ fn the_game_ends_when_its_time_is_up() {
 }
 
 #[test]
-fn rivals_start_spread_out_on_a_real_board() {
-    let board = build_board(&BOARDS[0]).expect("board builds");
+fn rivals_start_scattered_at_random_over_a_real_board() {
+    let start = |seed| {
+        let mut sim = Sim::new(GameSetup {
+            board: build_board(&BOARDS[0]).expect("board builds"),
+            seats: vec![Seat::Player, Seat::Computer, Seat::Computer, Seat::Computer],
+            minutes: 10,
+            seed,
+            placements: None,
+        });
+        sim.groups()
+    };
     let tuning = Tuning::default();
-    let sim = Sim::new(GameSetup {
-        board,
-        seats: vec![Seat::Player, Seat::Computer, Seat::Computer, Seat::Computer],
-        minutes: 10,
-        seed: 42,
-        placements: None,
-    });
-    let mut sim = sim;
-    let groups = sim.groups();
+    let groups = start(42);
     assert_eq!(groups.len(), 4 * tuning.start_waldleute as usize);
+    let board = build_board(&BOARDS[0]).expect("board builds");
     for (a, ..) in &groups {
-        assert!(!sim.board().is_water(a.tile));
+        assert!(!board.is_water(a.tile()));
+        assert_eq!(a.size(), 1);
         for (b, ..) in &groups {
-            if a.rival != b.rival {
-                assert!(a.tile.chebyshev(b.tile) > tuning.start_margin);
+            if a.id != b.id {
+                assert!(a.tile().chebyshev(b.tile()) > 1, "nobody next to anybody");
             }
         }
     }
+    let tiles = |g: &[(Group, Trail, Line)]| g.iter().map(|(g, ..)| g.tile()).collect::<Vec<_>>();
+    assert_eq!(tiles(&start(42)), tiles(&groups), "the seed decides");
+    assert_ne!(tiles(&start(43)), tiles(&groups));
 }
 
 fn real_game(seed: u64) -> GameSetup {
@@ -509,12 +752,92 @@ fn computer_rivals_expand_and_enclose() {
             .iter()
             .filter(|e| matches!(e, GameEvent::Enclosed { .. }))
             .count();
-        let open = sim
-            .board()
-            .tiles()
-            .filter(|&t| sim.board().open(t).is_some())
-            .count();
-        assert!(open > 80, "seed {seed}: rivals hold {open} tiles open");
+        // Trails grow back to the Waldleute, so count what they cut: trees.
+        let felled: u32 = sim.groups().iter().map(|(g, ..)| g.trees).sum();
+        assert!(
+            felled > 200,
+            "seed {seed}: rivals felled only {felled} trees"
+        );
     }
     assert!(enclosures > 0, "computer rivals enclose each other");
+}
+
+/// A computer rival's group in the corner of a field, and A's group of four at
+/// the west edge, nine tiles down.
+fn corner(computer: bool) -> Sim {
+    let f = field(30, 30);
+    let mut game = setup(&rows(&f), vec![vec![(0, 9)], vec![(2, 2)]]);
+    if computer {
+        game.seats = vec![Seat::Player, Seat::Computer];
+    }
+    let mut sim = if computer {
+        Sim::with_computers(game)
+    } else {
+        Sim::new(game)
+    };
+    sim.add_members(FIRST, &[(0, 10), (0, 11), (0, 12)]);
+    sim
+}
+
+fn until_taken(sim: &mut Sim, limit: u64) -> bool {
+    for _ in 0..limit {
+        sim.steps(1);
+        if sim.groups().iter().all(|(g, ..)| g.rival == A) {
+            return true;
+        }
+    }
+    false
+}
+
+#[test]
+fn a_ring_from_edge_to_edge_takes_a_group_in_the_corner() {
+    let mut sim = corner(true);
+    let mut line: Vec<(i32, i32)> = (1..=7).map(|x| (x, 9)).collect();
+    line.extend((0..=8).rev().map(|y| (7, y)));
+    sim.line(A, FIRST, &line);
+    assert!(until_taken(&mut sim, 3000), "even while it tries to escape");
+}
+
+#[test]
+fn a_ring_drawn_in_two_lines_holds_through_a_pause() {
+    let mut sim = corner(false);
+    let line: Vec<(i32, i32)> = (1..=7).map(|x| (x, 9)).collect();
+    sim.line(A, FIRST, &line);
+    sim.until_at(FIRST, (7, 9), 3000);
+    // A few seconds to draw the next line.
+    sim.steps(STEPS_PER_SECOND * 5);
+    let from = sim.group(FIRST).tile();
+    let line: Vec<(i32, i32)> = (0..=8).rev().map(|y| (7, y)).collect();
+    sim.line_from(A, FIRST, (from.x, from.y), &line);
+    assert!(until_taken(&mut sim, 3000));
+}
+
+/// A 30 × 30 field with water down column 12 (a river, or a lake when
+/// `lake`), a computer rival's group between it and the west edge, and A's
+/// group of four on the west edge.
+fn by_the_water(lake: bool) -> Sim {
+    let water = if lake { '1' } else { '~' };
+    let f: Vec<String> = (0..30)
+        .map(|_| (0..30).map(|x| if x == 12 { water } else { '.' }).collect())
+        .collect();
+    let mut game = setup(&rows(&f), vec![vec![(0, 9)], vec![(5, 3)]]);
+    game.seats = vec![Seat::Player, Seat::Computer];
+    let mut sim = Sim::with_computers(game);
+    sim.add_members(FIRST, &[(0, 10), (0, 11), (0, 12)]);
+    sim
+}
+
+#[test]
+fn a_ring_from_the_edge_to_the_water_holds_through_a_pause() {
+    for lake in [false, true] {
+        let mut sim = by_the_water(lake);
+        let line: Vec<(i32, i32)> = (1..=6).map(|x| (x, 9)).collect();
+        sim.line(A, FIRST, &line);
+        sim.until_at(FIRST, (6, 9), 3000);
+        sim.steps(STEPS_PER_SECOND * 5);
+        let from = sim.group(FIRST).tile();
+        let line: Vec<(i32, i32)> = (7..=11).map(|x| (x, from.y)).collect();
+        sim.line_from(A, FIRST, (from.x, from.y), &line);
+        assert!(until_taken(&mut sim, 3000), "lake: {lake}");
+    }
 }

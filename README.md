@@ -18,7 +18,7 @@ keeps. All game text is German with Swiss spelling.
 | --- | --- |
 | `src/rules/` | The rules, headless: board, groups, lines, trails, enclosing, water, sight, the game |
 | `src/ai.rs` | Computer rivals, playing through the same commands as the player |
-| `src/` (others) | Presentation: views, ground, markers, input, camera, menus, HUD |
+| `src/` (others) | Presentation: views, ground, sprites painted in code, trees and Waldleute, markers, input, camera, menus, HUD |
 | `data/waters/` | The Waldstatt's water pages the boards are cut from, compiled in |
 | `assets/fonts/` | Fira Sans (SIL Open Font License), compiled in |
 | `web/` | The page of the browser build |
@@ -34,31 +34,43 @@ keeps. All game text is German with Swiss spelling.
 
 Choose a board (Einsiedeln, Biberbrugg or Hütten), how many rivals sit at the
 board (two to four, you included; the others are computer rivals) and how long the
-game lasts. Every rival starts with five Waldleute, each a group of one, somewhere
-in an unbroken forest.
+game lasts. Every rival starts with five Waldleute, each a group of one, scattered
+at random over the forest.
 
-- **Cut.** Press on one of your groups and drag a line over the forest. A group of
-  one draws ten tiles, two twenty, four thirty: `(log2(size) + 1) × 10`. It cuts
-  tile by tile and earns the trees; bigger groups cut faster.
-- **Trails grow back.** Only the last tiles of a trail, as many as the group may
-  draw, stay open; a sapling marks the one that grows back next.
+- **Cut.** Press on any of your Waldleute and drag a line over the forest, or click
+  where the selected group should go and it finds the fastest way. A group of one
+  goes ten tiles, two twenty, four thirty: `(log2(size) + 1) × 10`, a diagonal
+  counting as one. Where a line is blocked, it finds another way. The one you
+  pressed leads: it cuts tile by tile and earns the trees, faster the bigger
+  its group; the others follow over the clearing, never more than two tiles apart.
+- **Gather.** When the line is done, the Waldleute gather as near to its end as
+  they can, one to a tile, cutting where they must; water, the edge, other rivals'
+  margins and your other clearings stop them.
+- **Trails grow back.** While a group cuts, only the last tiles of its trail, as
+  many as it may draw, stay open; once it has stood still for eight seconds, the
+  trail grows back tile by tile until only its gathering is left. A sapling marks
+  the next.
 - **Margins.** Nobody can cut next to another rival's open tile (red-tinged forest),
   so a ring that is closing traps a group before it closes.
-- **Enclose.** Your open tiles, the water and the board's edge split the board; every
-  other rival's group in a part smaller than the largest becomes yours, with its
-  Waldleute, trees and trail. Rings hold diagonally.
+- **Enclose.** Your open tiles, the water and the board's edge split the board; a
+  ring round another rival's clearing takes its Waldleute, its trees and its
+  clearing into the group that closed it. Rings hold diagonally. Waldleute in a
+  river, or already across it, stay free; a ring round a lake takes the boat on it.
 - **Water.** Wading through a river takes ten times as long as cutting and costs
-  trees; a lake needs a ship (twenty times as long, trees, at most ten Waldleute).
-  Groups in the water cannot be enclosed; a group building a ship on the shore can.
-- **Grow.** Every 40 seconds each rival gets a new Waldmensch, who joins your
-  selected group. Send a group onto another of yours to merge; split with T.
+  trees; a lake needs a ship (twenty times as long, trees, at most ten Waldleute,
+  who all go aboard).
+- **Grow.** Every 40 seconds each rival gets a new Waldmensch, who turns up as a
+  group of one somewhere at random in the forest, away from everyone and outside
+  other rivals' rings. Groups merge when a cut joins their clearings, or a lead walks
+  into the other's; split with T, and the half furthest back goes its own way.
 - **Win.** When the time is up or only one rival is left, rivals rank by Waldleute,
   then trees.
 
 | Action | Input |
 | --- | --- |
-| Select a group and draw its line | Left mouse button on the group, drag, release |
-| Draw from the selected group | Left mouse button beside it |
+| Select a group and draw a line from one of its Waldleute | Left mouse button on the Waldmensch (or its group's badge), drag, release |
+| Send the selected group the fastest way | Click beside it |
+| Draw from the selected group's lead | Left mouse button beside it, drag |
 | Stop the selected group | Right mouse button or X |
 | Next / previous group | Tab / Shift+Tab |
 | Split the selected group | T |

@@ -22,6 +22,7 @@ impl Rng {
     }
 
     /// A number in `lo..=hi`.
+    #[cfg(test)]
     pub fn between(&mut self, lo: i32, hi: i32) -> i32 {
         lo + self.below((hi - lo + 1) as u32) as i32
     }
