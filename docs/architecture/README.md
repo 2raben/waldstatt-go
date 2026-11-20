@@ -51,7 +51,7 @@ for the browser ([ADR 0005](decisions/0005-build-the-same-crate-for-the-browser.
   `apply_commands`.
 - `enclosure.rs`: `Partition` (how one rival's open tiles divide the board, with
   all water or only rivers as walls), `resolve_enclosures`, and
-  `room`/`is_trapped` (how far a group can still cut).
+  `room`/`is_trapped`/`can_split` (how far a group can still cut).
 - `sight.rs`: each rival's `Sight`: what it sees now and what it has seen.
 - `rng.rs`: SplitMix64 and tile hashes, the only randomness.
 
@@ -76,19 +76,24 @@ the rules, from that rival's `Sight` only, and writes `Controls`.
 - [markers.rs](../../src/markers.rs): group badges, where each Waldmensch is drawn
   (`member_at`), selection, danger rings, line dots, the hovered tile and water
   names.
-- [input.rs](../../src/input.rs): the pointer and keys into commands; selection
-  and the line being drawn. [camera.rs](../../src/camera.rs): pan, zoom, centring.
+- [input.rs](../../src/input.rs): the pointer (the mouse, or one finger, a long
+  press standing for the right button) and keys into commands; selection and the
+  line being drawn. [camera.rs](../../src/camera.rs): pan, zoom (also with two
+  fingers), centring.
 - [screens.rs](../../src/screens.rs): the `Screen` and `Pause` states, start menu,
   setup, pause menu and end with the ranking. [hud.rs](../../src/hud.rs): the
   on-screen text during a game.
 
 ### Frame and fixed-step flow
 
-1. `PreUpdate`, after Bevy's `InputSystems`, only while playing: the tile under the
-   pointer is picked through the active view; the selection follows merges and
-   enclosures; pointer and keys queue
-   `Order::Line` (from the Waldmensch pressed on) and `Order::Split` for the
-   player's rival.
+1. `PreUpdate`, after Bevy's `InputSystems`: the mouse buttons, in the order they
+   came, and the first finger are read into one pointer every frame, so clicks in
+   menus never reach a game; then, only while playing, the tile under it is picked
+   through the active view; the selection follows merges and enclosures; pointer and keys
+   queue `Order::Line` (from the Waldmensch pressed on, or the one nearest the
+   clearing pressed), `Order::Goto` (a click beside the selected group, or a
+   double click on another group) and `Order::Split` (the right button or a long
+   press on a group, with a line when dragged) for the player's rival.
 2. `FixedUpdate` at 64 Hz, while a game runs: computer rivals decide; then, chained
    in `RuleSystems`, `apply_commands`, `advance_groups`, `resolve_enclosures`,
    `grant_waldleute`, `update_sight`, and `finish_step` (step count, rivals out, end).
@@ -145,8 +150,16 @@ Waldmensch stands on, one it gathers on, or one that joins its Waldleute. A piec
 of clearing none of its Waldleute can reach grows back at once, so no clearing is
 ever empty. When the lead cuts next to
 another clearing of the rival, or walks into one, the two groups merge: Waldleute,
-trees, trails and water add. Splitting sends the half furthest back from the lead
-away with that share of the trees; each trail tile goes with the nearer half.
+trees, trails and water add. Clearings that already touch, as the two halves of a
+split do, are not joined by a cut, only by walking into the other. A click's way to a tile in or beside another clearing
+of the rival goes there, so the groups merge. Splitting sends the half furthest
+back from the lead away with that share of the trees; each trail tile goes with the
+nearer half. A split with a line sends instead the half nearest the Waldmensch it
+starts from, which leads that half along the line (as long as the half may draw);
+if that was the lead, the staying half's Waldmensch nearest it leads them, and
+they gather where they stand. A group on the water, or one that can reach fewer
+than `split_room` tiles from its lead (as its rival sees the board, so other
+rivals' margins, water and the edge hem it in), does not split.
 
 After the moves, each rival whose open tiles changed splits the board again: its
 open tiles and the water are walls, parts are found with straight steps (so rings
@@ -216,12 +229,14 @@ for pull requests; the Pages workflow builds the browser version on `main`.
 
 - **Unit tests** beside each module cover the line limit, regions, rasterizing the
   water pages and every board, partitions (rings, diagonal rings, gaps, water and
-  edge, water alone), trapping, line planning, margins, river costs, splitting,
-  projections in both views, drawn lines, and the computer rivals' ring runs.
+  edge, water alone), trapping, line planning, margins, river costs, splitting
+  (also from a Waldmensch), projections in both views, drawn lines, and the
+  computer rivals' ring runs.
 - **Game tests** in [src/tests.rs](../../src/tests.rs) step the real plugins headless,
   one fixed step per update, with commands written to `Controls`: cutting speed by
-  size, trails growing back, margins, merging, splitting, closing a ring, a trapped
-  group, safety on water and not on the shore, wading, ships, new Waldleute, the end
+  size, trails growing back, margins, merging (also by a click on another
+  clearing), splitting (with a line, the half sent away staying apart, and not
+  when hemmed in), closing a ring, a trapped group, safety on water and not on the shore, wading, ships, new Waldleute, the end
   and ranking, placement on a real board, determinism of a whole game with computer
   rivals, and computer rivals expanding and enclosing each other.
 

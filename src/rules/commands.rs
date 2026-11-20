@@ -6,9 +6,10 @@
 
 use bevy::prelude::*;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 
 use super::board::{Board, RivalId, Tile};
+use super::enclosure::can_split;
 use super::game::{Game, GameEvent, Rival};
 use super::group::{Group, GroupId, Line, Trail, plan_line, split_group};
 use super::moves::regrowable;
@@ -37,14 +38,31 @@ pub enum Order {
         from: Tile,
         to: Tile,
     },
-    /// Split the group in two: the half furthest back goes its own way.
-    Split { group: GroupId },
+    /// Split the group in two. Without `from`, the half furthest back from
+    /// the lead goes its own way; with it, the half nearest the Waldmensch
+    /// standing on `from` goes, led by it along `tiles` as a drawn line. A
+    /// group hemmed in by other rivals, water or the board's edge (less than
+    /// `Tuning::split_room` tiles to reach) does not split.
+    Split {
+        group: GroupId,
+        from: Option<Tile>,
+        tiles: Vec<Tile>,
+    },
 }
 
 impl Order {
+    /// Splits the group, the half furthest back going its own way.
+    pub fn split(group: GroupId) -> Self {
+        Order::Split {
+            group,
+            from: None,
+            tiles: Vec::new(),
+        }
+    }
+
     pub fn group(&self) -> GroupId {
         match self {
-            Order::Line { group, .. } | Order::Goto { group, .. } | Order::Split { group } => {
+            Order::Line { group, .. } | Order::Goto { group, .. } | Order::Split { group, .. } => {
                 *group
             }
         }
@@ -134,26 +152,29 @@ pub fn apply_commands(
                     Order::Line { tiles, .. } => plan_line(&board, &tuning, &group, tiles),
                     Order::Split { .. } => continue,
                 };
-                // A way round something blocking may use the whole allowance.
-                group.goal = planned.back().copied();
-                group.budget = line_limit(group.size()) as u32;
-                // Work towards the same next tile by the same lead carries on.
-                let lead = group.lead;
-                if lead != before || planned.front() != line.0.front() {
-                    group.members[lead].progress = 0;
-                    group.members[lead].toward = None;
-                }
-                if planned.is_empty() {
-                    group.target = group.tile();
-                }
-                line.0 = planned;
+                give_line(&mut group, &mut line, planned, before);
             }
-            Order::Split { .. } => {
+            Order::Split { from, tiles, .. } => {
+                let sight = sights.iter().find(|(r, _)| r.id == rival).map(|(_, s)| s);
+                let sees = |t: Tile| sight.is_none_or(|s| s.sees(&board, t));
+                if !can_split(&board, &group, tuning.split_room, sees) {
+                    continue;
+                }
+                let lead = group.tile();
                 let new_id = game.next_group_id();
                 if let Some((mut new, new_trail)) =
-                    split_group(&board, &mut group, &mut trail, new_id)
+                    split_group(&board, &mut group, &mut trail, new_id, from)
                 {
+                    if group.tile() != lead {
+                        // The lead went with the other half: these gather.
+                        give_line(&mut group, &mut line, VecDeque::new(), usize::MAX);
+                    }
                     new.regrows = regrowable(&board, &new, &new_trail, &Default::default());
+                    let mut new_line = Line::default();
+                    if from.is_some() {
+                        let planned = plan_line(&board, &tuning, &new, &tiles);
+                        give_line(&mut new, &mut new_line, planned, usize::MAX);
+                    }
                     let step = game.step;
                     game.events.push(GameEvent::Split {
                         step,
@@ -161,9 +182,26 @@ pub fn apply_commands(
                         from: group.id,
                         new: new_id,
                     });
-                    commands.spawn((new, new_trail, Line::default()));
+                    commands.spawn((new, new_trail, new_line));
                 }
             }
         }
     }
+}
+
+/// Gives a group the line `planned` from its lead, which led before as
+/// `before`: work towards the same next tile by the same lead carries on.
+fn give_line(group: &mut Group, line: &mut Line, planned: VecDeque<Tile>, before: usize) {
+    // A way round something blocking may use the whole allowance.
+    group.goal = planned.back().copied();
+    group.budget = line_limit(group.size()) as u32;
+    let lead = group.lead;
+    if lead != before || planned.front() != line.0.front() {
+        group.members[lead].progress = 0;
+        group.members[lead].toward = None;
+    }
+    if planned.is_empty() {
+        group.target = group.tile();
+    }
+    line.0 = planned;
 }

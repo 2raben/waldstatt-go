@@ -37,12 +37,13 @@ board (two to four, you included; the others are computer rivals) and how long t
 game lasts. Every rival starts with five Waldleute, each a group of one, scattered
 at random over the forest.
 
-- **Cut.** Press on any of your Waldleute and drag a line over the forest, or click
-  where the selected group should go and it finds the fastest way. A group of one
-  goes ten tiles, two twenty, four thirty: `(log2(size) + 1) × 10`, a diagonal
-  counting as one. Where a line is blocked, it finds another way. The one you
-  pressed leads: it cuts tile by tile and earns the trees, faster the bigger
-  its group; the others follow over the clearing, never more than two tiles apart.
+- **Cut.** Press on any of your groups (a Waldmensch, its badge or its clearing) and
+  drag a line over the forest, or click where the selected group should go and it
+  finds the fastest way. A group of one goes ten tiles, two twenty, four thirty:
+  `(log2(size) + 1) × 10`, a diagonal counting as one. Where a line is blocked, it
+  finds another way. The one you pressed (or the one nearest the clearing you
+  pressed) leads: it cuts tile by tile and earns the trees, faster the bigger its
+  group; the others follow over the clearing, never more than two tiles apart.
 - **Gather.** When the line is done, the Waldleute gather as near to its end as
   they can, one to a tile, cutting where they must; water, the edge, other rivals'
   margins and your other clearings stop them.
@@ -62,22 +63,32 @@ at random over the forest.
 - **Grow.** Every 40 seconds each rival gets a new Waldmensch, who turns up as a
   group of one somewhere at random in the forest, away from everyone and outside
   other rivals' rings. Groups merge when a cut joins their clearings, or a lead walks
-  into the other's; split with T, and the half furthest back goes its own way.
+  into the other's: double-click another group to send the selected one there.
+  Right-click a group (or press T) to split it, and the half furthest back goes its
+  own way; drag with the right button to send the half nearest the Waldmensch you
+  pressed along a line instead. A group hemmed in by other rivals, water or the
+  board's edge, with fewer than 120 tiles it could reach, cannot split.
 - **Win.** When the time is up or only one rival is left, rivals rank by Waldleute,
   then trees.
 
 | Action | Input |
 | --- | --- |
-| Select a group and draw a line from one of its Waldleute | Left mouse button on the Waldmensch (or its group's badge), drag, release |
+| Select a group | Click on a Waldmensch, its group's badge, or its clearing |
+| Draw a line from one of its Waldleute | Left mouse button on the group, drag, release |
 | Send the selected group the fastest way | Click beside it |
 | Draw from the selected group's lead | Left mouse button beside it, drag |
-| Stop the selected group | Right mouse button or X |
+| Send the selected group to another one, to merge | Double-click the other group |
+| Split a group | Right-click it, or T for the selected group |
+| Split a group and send one half along a line | Right mouse button on the group, drag, release |
+| Stop the selected group | Right mouse button beside it, or X |
 | Next / previous group | Tab / Shift+Tab |
-| Split the selected group | T |
 | Switch top-down / isometric view | V |
 | Centre on the selected group | Space |
 | Move the view / zoom | WASD, arrows, middle mouse button / mouse wheel, + and − |
 | Pause, all keys | Esc |
+
+On a touch screen, a tap is a click, holding a finger still for half a second is
+the right mouse button, and two fingers move and zoom the view.
 
 ## Requirements
 

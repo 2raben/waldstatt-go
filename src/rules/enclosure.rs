@@ -377,6 +377,14 @@ pub fn is_trapped(board: &Board, group: &Group, cap: usize, sees: impl Fn(Tile) 
     reached < cap && reached < region
 }
 
+/// Whether a group may split: it has two Waldleute or more and can reach at
+/// least `cap` tiles by cutting from its lead, so no other rival, water or the
+/// board's edge hems it in. A group on the water cannot split.
+pub fn can_split(board: &Board, group: &Group, cap: usize, sees: impl Fn(Tile) -> bool) -> bool {
+    let tile = group.tile();
+    group.size() >= 2 && !board.is_water(tile) && room(board, group.rival, tile, cap, sees) >= cap
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
