@@ -44,15 +44,10 @@ impl Sight {
     ) {
         self.visible.fill(false);
         for centre in from {
-            for dy in -radius..=radius {
-                for dx in -radius..=radius {
-                    if dx * dx + dy * dy > radius * radius {
-                        continue;
-                    }
-                    if let Some(i) = board.index(Tile::new(centre.x + dx, centre.y + dy)) {
-                        self.visible[i] = true;
-                        self.seen[i] = true;
-                    }
+            for tile in centre.within(radius) {
+                if let Some(i) = board.index(tile) {
+                    self.visible[i] = true;
+                    self.seen[i] = true;
                 }
             }
         }

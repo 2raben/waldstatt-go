@@ -4,11 +4,13 @@
 //! (`2raben/waldstatt`), whose `tools/waters.mjs` generates them from
 //! swisstopo's swissTLM3D and BAFU's stream orders. A page covers 200 × 200
 //! tiles of 50 m; tile (0, 0) is the Klosterplatz Einsiedeln and north is −y.
-//! Each page is rasterized into tiles as the Waldstatt's `world.ts` does:
-//! lakes are filled even-odd, and every tile whose centre lies within half a
-//! tile of a river's line (0.6 for wide rivers) is water, so even a brook is an
-//! unbroken line that straight steps cannot slip through.
+//! Each page is rasterized into the board's hexes much as the Waldstatt's
+//! `world.ts` rasterizes it into squares: lakes are filled even-odd, and every
+//! hex whose centre lies within half a step of a river's line (0.6 for wide
+//! rivers) is water, so even a brook is an unbroken line that no step can
+//! slip through (ADR 0008).
 
+use bevy::prelude::Vec2;
 use serde::Deserialize;
 
 use super::board::{Board, Ground, Tile, WaterLabel};
@@ -35,6 +37,8 @@ pub struct BoardSpec {
     pub description: &'static str,
     /// The Waldstatt tile of the board's north-west corner.
     pub origin: (i32, i32),
+    /// Hexes per row, and rows; rows lie √3 / 2 of a step apart, so 115 rows
+    /// cover about as much ground as 100 columns.
     pub width: i32,
     pub height: i32,
 }
@@ -47,21 +51,21 @@ pub const BOARDS: &[BoardSpec] = &[
         description: "Das Klosterdorf und die Alp",
         origin: (-92, -50),
         width: 100,
-        height: 100,
+        height: 115,
     },
     BoardSpec {
         name: "Biberbrugg",
         description: "Wo die Alp in die Sihl fliesst",
         origin: (-95, -140),
         width: 100,
-        height: 100,
+        height: 115,
     },
     BoardSpec {
         name: "Hütten",
         description: "Die Sihl und der Hüttnersee",
         origin: (-170, -170),
         width: 100,
-        height: 100,
+        height: 115,
     },
 ];
 
@@ -96,35 +100,69 @@ struct Label {
     lake: bool,
 }
 
-/// A rectangle of Waldstatt tiles to rasterize into.
+/// The hexes of a board on the Waldstatt's map, whose units are its tiles of
+/// 50 m: one step between hexes is one unit.
 #[derive(Clone, Copy)]
-struct Clip {
-    x0: i32,
-    y0: i32,
-    x1: i32,
-    y1: i32,
+struct Grid {
+    /// The Waldstatt point of the board's north-west corner.
+    ox: f64,
+    oy: f64,
+    width: i32,
+    height: i32,
 }
 
-impl Clip {
-    fn is_empty(self) -> bool {
-        self.x0 > self.x1 || self.y0 > self.y1
+/// Rows lie √3 / 2 apart; a hex reaches 1 / √3 from its centre to its corners.
+const ROW: f64 = 0.866_025_403_784_438_6;
+const RADIUS: f64 = 0.577_350_269_189_625_8;
+
+impl Grid {
+    /// How far east of `ox` the centres of a row start: odd rows are shifted.
+    fn shift(y: i32) -> f64 {
+        0.5 + 0.5 * f64::from(y & 1)
+    }
+
+    /// A hex's centre on the map, as [`Tile::centre`] puts it on the board.
+    fn centre(self, x: i32, y: i32) -> (f64, f64) {
+        (
+            self.ox + f64::from(x) + Grid::shift(y),
+            self.oy + f64::from(y) * ROW + RADIUS,
+        )
+    }
+
+    /// The rows whose centres lie between `y0` and `y1` on the map.
+    fn rows(self, y0: f64, y1: f64) -> std::ops::RangeInclusive<i32> {
+        let top = ((y0 - self.oy - RADIUS) / ROW).ceil() as i32;
+        let bottom = ((y1 - self.oy - RADIUS) / ROW).floor() as i32;
+        top.max(0)..=bottom.min(self.height - 1)
+    }
+
+    /// The columns of row `y` whose centres lie between `x0` and `x1`.
+    fn columns(self, y: i32, x0: f64, x1: f64) -> std::ops::RangeInclusive<i32> {
+        let from = (x0 - self.ox - Grid::shift(y)).ceil() as i32;
+        let to = (x1 - self.ox - Grid::shift(y)).floor() as i32;
+        from.max(0)..=to.min(self.width - 1)
     }
 }
 
-/// Builds a board from its spec and the compiled-in water pages.
+/// Builds a board from its spec and the compiled-in water pages, in hexes
+/// (ADR 0008): a hex is a lake where its centre lies inside one, and a river
+/// where its centre lies within half a step of a river's line.
 pub fn build_board(spec: &BoardSpec) -> Result<Board, String> {
-    let (ox, oy) = spec.origin;
     let (w, h) = (spec.width, spec.height);
+    let grid = Grid {
+        ox: f64::from(spec.origin.0),
+        oy: f64::from(spec.origin.1),
+        width: w,
+        height: h,
+    };
     let mut ground = vec![Ground::Land; (w * h) as usize];
     let mut labels = Vec::new();
-    let board_clip = Clip {
-        x0: ox,
-        y0: oy,
-        x1: ox + w - 1,
-        y1: oy + h - 1,
-    };
-    for py in oy.div_euclid(PAGE)..=(oy + h - 1).div_euclid(PAGE) {
-        for px in ox.div_euclid(PAGE)..=(ox + w - 1).div_euclid(PAGE) {
+    // The map's area the board covers, to find its pages.
+    let (east, south) = grid.centre(w, h - 1);
+    let (x0, y0) = (spec.origin.0, spec.origin.1);
+    let (x1, y1) = (east.ceil() as i32, (south + RADIUS).ceil() as i32);
+    for py in y0.div_euclid(PAGE)..=y1.div_euclid(PAGE) {
+        for px in x0.div_euclid(PAGE)..=x1.div_euclid(PAGE) {
             let Some((_, source)) = PAGES.iter().find(|(key, _)| *key == (px, py)) else {
                 return Err(format!("Wasserseite {px},{py} fehlt"));
             };
@@ -133,20 +171,19 @@ pub fn build_board(spec: &BoardSpec) -> Result<Board, String> {
             if page.land.is_some() {
                 return Err(format!("Wasserseite {px},{py} reicht über die Grenze"));
             }
-            // Each page fills only its own tiles, as in the Waldstatt.
-            let clip = Clip {
-                x0: board_clip.x0.max(px * PAGE),
-                y0: board_clip.y0.max(py * PAGE),
-                x1: board_clip.x1.min(px * PAGE + PAGE - 1),
-                y1: board_clip.y1.min(py * PAGE + PAGE - 1),
+            // Each page fills only the hexes whose centres lie on it, as in the
+            // Waldstatt each page fills only its own tiles.
+            let on_page = |x: i32, y: i32| {
+                let (cx, cy) = grid.centre(x, y);
+                (
+                    cx.div_euclid(f64::from(PAGE)) as i32,
+                    cy.div_euclid(f64::from(PAGE)) as i32,
+                ) == (px, py)
             };
-            if clip.is_empty() {
-                continue;
-            }
             let mut set = |x: i32, y: i32, value: Ground| {
-                let i = ((y - oy) * w + (x - ox)) as usize;
+                let i = (y * w + x) as usize;
                 // A lake keeps its number where a river line runs into it.
-                if !matches!(ground[i], Ground::Lake(_)) {
+                if on_page(x, y) && !matches!(ground[i], Ground::Lake(_)) {
                     ground[i] = value;
                 }
             };
@@ -157,18 +194,19 @@ pub fn build_board(spec: &BoardSpec) -> Result<Board, String> {
                     .chain(&lake.islands)
                     .map(Vec::as_slice)
                     .collect();
-                fill_rings(&rings, clip, |x, y| set(x, y, Ground::Lake(lake.id)));
+                fill_rings(&rings, grid, |x, y| set(x, y, Ground::Lake(lake.id)));
             }
             for line in &page.lines {
                 let half = if line.wide { WIDE_RIVER } else { BARRIER };
-                stroke_line(&line.points, half, clip, |x, y| set(x, y, Ground::River));
+                stroke_line(&line.points, half, grid, |x, y| set(x, y, Ground::River));
             }
             for label in &page.labels {
-                let tile = (label.x.floor() as i32, label.y.floor() as i32);
-                if (clip.x0..=clip.x1).contains(&tile.0) && (clip.y0..=clip.y1).contains(&tile.1) {
+                let at = Vec2::new((label.x - grid.ox) as f32, (label.y - grid.oy) as f32);
+                let tile = Tile::at(at);
+                if (0..w).contains(&tile.x) && (0..h).contains(&tile.y) && on_page(tile.x, tile.y) {
                     labels.push(WaterLabel {
                         name: label.name.clone(),
-                        tile: Tile::new(tile.0 - ox, tile.1 - oy),
+                        tile,
                         lake: label.lake,
                     });
                 }
@@ -178,19 +216,17 @@ pub fn build_board(spec: &BoardSpec) -> Result<Board, String> {
     Ok(Board::new(spec.name, w, h, ground, labels))
 }
 
-/// Fills even-odd rings (flat lists x0, y0, x1, y1, …) into the clip: a tile
+/// Fills even-odd rings (flat lists x0, y0, x1, y1, …) into the grid: a hex
 /// is inside when its centre is.
-fn fill_rings(rings: &[&[f64]], clip: Clip, mut set: impl FnMut(i32, i32)) {
+fn fill_rings(rings: &[&[f64]], grid: Grid, mut set: impl FnMut(i32, i32)) {
     let ys = || rings.iter().flat_map(|ring| ring.iter().skip(1).step_by(2));
     let Some(min_y) = ys().copied().reduce(f64::min) else {
         return;
     };
     let max_y = ys().copied().fold(min_y, f64::max);
-    let top = clip.y0.max(min_y.floor() as i32);
-    let bottom = clip.y1.min(max_y.ceil() as i32);
     let mut cuts = Vec::new();
-    for ty in top..=bottom {
-        let cy = f64::from(ty) + 0.5;
+    for ty in grid.rows(min_y, max_y) {
+        let (_, cy) = grid.centre(0, ty);
         cuts.clear();
         for ring in rings {
             let n = ring.len() / 2;
@@ -207,34 +243,31 @@ fn fill_rings(rings: &[&[f64]], clip: Clip, mut set: impl FnMut(i32, i32)) {
         }
         cuts.sort_by(f64::total_cmp);
         for pair in cuts.chunks_exact(2) {
-            let from = clip.x0.max((pair[0] - 0.5).ceil() as i32);
-            let to = clip.x1.min((pair[1] - 0.5).floor() as i32);
-            for tx in from..=to {
+            for tx in grid.columns(ty, pair[0], pair[1]) {
                 set(tx, ty);
             }
         }
     }
 }
 
-/// Sets every tile of the clip whose centre lies within `half` of the line.
-/// Distances are compared squared, so only exactly rounded arithmetic is used.
-fn stroke_line(points: &[f64], half: f64, clip: Clip, mut set: impl FnMut(i32, i32)) {
+/// Sets every hex whose centre lies within `half` of the line. Two
+/// neighbouring hexes on either side of a line are one step apart, so with
+/// `half` at least half a step one of them is always set: a line leaves no
+/// gap. Distances are compared squared, so only exactly rounded arithmetic is
+/// used.
+fn stroke_line(points: &[f64], half: f64, grid: Grid, mut set: impl FnMut(i32, i32)) {
     for segment in points.windows(4).step_by(2) {
         let [ax, ay, bx, by] = [segment[0], segment[1], segment[2], segment[3]];
         let length2 = match (bx - ax).powi(2) + (by - ay).powi(2) {
             0.0 => 1.0,
             l => l,
         };
-        let fx = clip.x0.max((ax.min(bx) - half - 1.0).floor() as i32);
-        let tx = clip.x1.min((ax.max(bx) + half).ceil() as i32);
-        let fy = clip.y0.max((ay.min(by) - half - 1.0).floor() as i32);
-        let ty = clip.y1.min((ay.max(by) + half).ceil() as i32);
-        for y in fy..=ty {
-            for x in fx..=tx {
-                let (px, py) = (f64::from(x) + 0.5, f64::from(y) + 0.5);
+        for y in grid.rows(ay.min(by) - half, ay.max(by) + half) {
+            for x in grid.columns(y, ax.min(bx) - half, ax.max(bx) + half) {
+                let (px, py) = grid.centre(x, y);
                 let t = (((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / length2).clamp(0.0, 1.0);
                 let (dx, dy) = (px - (ax + t * (bx - ax)), py - (ay + t * (by - ay)));
-                if dx * dx + dy * dy < half * half {
+                if dx * dx + dy * dy <= half * half {
                     set(x, y);
                 }
             }
@@ -278,38 +311,96 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_line_leaves_no_gap_for_straight_steps() {
-        // A brook running diagonally: every straight step across it meets water.
-        let clip = Clip {
-            x0: 0,
-            y0: 0,
-            x1: 9,
-            y1: 9,
-        };
-        let mut ground = vec![Ground::Land; 100];
-        stroke_line(&[0.0, 0.0, 10.0, 7.0], BARRIER, clip, |x, y| {
-            ground[(y * 10 + x) as usize] = Ground::River;
-        });
-        let board = Board::new("Bach", 10, 10, ground, Vec::new());
-        assert_ne!(
-            board.region(Tile::new(9, 0)),
-            board.region(Tile::new(0, 9)),
-            "land on either side of the brook stays apart"
-        );
+    fn grid(width: i32, height: i32) -> Grid {
+        Grid {
+            ox: 0.0,
+            oy: 0.0,
+            width,
+            height,
+        }
     }
 
     #[test]
-    fn fills_a_square_lake() {
-        let clip = Clip {
-            x0: 0,
-            y0: 0,
-            x1: 9,
-            y1: 9,
-        };
+    fn hex_centres_agree_with_the_board() {
+        let grid = grid(10, 10);
+        for y in 0..10 {
+            for x in 0..10 {
+                let (cx, cy) = grid.centre(x, y);
+                let c = Tile::new(x, y).centre();
+                assert!((cx as f32 - c.x).abs() < 1e-5 && (cy as f32 - c.y).abs() < 1e-5);
+            }
+        }
+    }
+
+    #[test]
+    fn a_line_leaves_no_gap() {
+        // Brooks running every way across the board: no land on one side is
+        // joined to land on the other.
+        for points in [
+            [0.0, 0.0, 10.0, 7.0],
+            [0.0, 4.0, 10.5, 4.3],
+            [5.2, 0.0, 4.6, 9.0],
+            [0.0, 8.0, 10.5, 0.5],
+        ] {
+            let mut ground = vec![Ground::Land; 100];
+            stroke_line(&points, BARRIER, grid(10, 10), |x, y| {
+                ground[(y * 10 + x) as usize] = Ground::River;
+            });
+            let board = Board::new("Bach", 10, 10, ground, Vec::new());
+            let side = |t: Tile| {
+                let (c, [ax, ay, bx, by]) = (t.centre(), points.map(|v| v as f32));
+                (bx - ax) * (c.y - ay) - (by - ay) * (c.x - ax) > 0.0
+            };
+            for a in board.tiles().filter(|&t| !board.is_water(t)) {
+                for b in board.steps(a).filter(|&t| !board.is_water(t)) {
+                    assert_eq!(side(a), side(b), "{points:?}: {a:?} and {b:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn no_step_on_a_board_crosses_a_river() {
+        for spec in BOARDS {
+            let board = build_board(spec).expect("board builds");
+            let (ox, oy) = (spec.origin.0 as f32, spec.origin.1 as f32);
+            let mut lines = Vec::new();
+            for (_, source) in PAGES {
+                let page: Page = serde_json::from_str(source).expect("page parses");
+                for line in page.lines {
+                    let p: Vec<Vec2> = line
+                        .points
+                        .chunks_exact(2)
+                        .map(|xy| Vec2::new(xy[0] as f32 - ox, xy[1] as f32 - oy))
+                        .collect();
+                    lines.extend(p.windows(2).map(|ab| (ab[0], ab[1])));
+                }
+            }
+            let crosses = |a: Vec2, b: Vec2, (c, d): (Vec2, Vec2)| {
+                let side = |p: Vec2, q: Vec2, r: Vec2| (q - p).perp_dot(r - p);
+                side(a, b, c) * side(a, b, d) < 0.0 && side(c, d, a) * side(c, d, b) < 0.0
+            };
+            for a in board.tiles().filter(|&t| !board.is_water(t)) {
+                for b in board.steps(a).filter(|&t| t > a && !board.is_water(t)) {
+                    let (ca, cb) = (a.centre(), b.centre());
+                    assert!(
+                        !lines.iter().any(|&l| crosses(ca, cb, l)),
+                        "{}: the step from {a:?} to {b:?} crosses a river",
+                        spec.name
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fills_a_lake_by_centres() {
         let mut count = 0;
-        let ring = [2.0, 2.0, 6.0, 2.0, 6.0, 5.0, 2.0, 5.0];
-        fill_rings(&[&ring], clip, |_, _| count += 1);
-        assert_eq!(count, 4 * 3);
+        // Rows 1 to 3 have their centres between 1.2 and 3.4. Between 2 and 6
+        // lie four centres of the even row and five of each odd one, which
+        // is shifted half a step east.
+        let ring = [2.0, 1.2, 6.0, 1.2, 6.0, 3.4, 2.0, 3.4];
+        fill_rings(&[&ring], grid(10, 10), |_, _| count += 1);
+        assert_eq!(count, 5 + 4 + 5);
     }
 }

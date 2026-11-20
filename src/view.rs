@@ -1,23 +1,24 @@
-//! The two views of the board: top-down and isometric (ADR 0001).
+//! The two views of the board: top-down and isometric (ADRs 0001 and 0008).
 //!
-//! The rules know only tiles. A view is a projection from tile coordinates to
-//! world coordinates; the pointer picks a tile through the same projection,
-//! inverted. The isometric view is the top-down board turned 45° and squashed
-//! to half its height, so the flat parts of the board (the ground image, lines
-//! and highlights) are children of one plane whose transform is the view, and
-//! upright markers are placed with [`BoardView::project`]. Switching views
-//! changes only drawing, never the game.
-
-use std::f32::consts::FRAC_PI_4;
+//! The rules know only tiles. A view is a projection from board units (see
+//! [`Tile::centre`]) to world coordinates; the pointer picks the hex under it
+//! through the same projection, inverted, rounded to the nearest hex. Both
+//! views keep north up: the isometric view is the same hex board squashed to
+//! half its height, so the flat parts of the board (the ground image, lines
+//! and highlights) are children of one plane under a root whose scale is the
+//! view, and upright markers are placed with [`BoardView::project`] and drawn
+//! back to front by row. Switching views changes only drawing, never the game.
 
 use bevy::prelude::*;
 
 use crate::rules::{Board, Tile};
 
-/// World units per tile side in the top-down view.
+/// World units per step between hexes in the top-down view.
 pub const TILE: f32 = 16.0;
-/// Half the width of a tile's diamond in the isometric view; it is half as high.
-pub const ISO: f32 = 16.0;
+/// World units per step east in the isometric view; a step south is half as
+/// long on screen. A hex then covers about as much of the screen as the
+/// diamond of a square tile did.
+pub const ISO: f32 = 24.0;
 
 // Draw heights, bottom to top: the ground at 0, glints on the water, upright
 // things (discs, trees, Waldleute, boats) sorted by [`BoardView::depth`]
@@ -63,60 +64,48 @@ impl BoardView {
         21.0 * self.figure_scale()
     }
 
-    /// World position of a point in tile coordinates; a tile's centre is
-    /// `(x + 0.5, y + 0.5)`. North is up in the top-down view and to the upper
-    /// right in the isometric one, as in the Waldstatt.
-    pub fn project(self, p: Vec2) -> Vec2 {
+    /// World units per board unit, east and north.
+    fn scale(self) -> Vec2 {
         match self {
-            BoardView::TopDown => Vec2::new(p.x * TILE, -p.y * TILE),
-            BoardView::Isometric => Vec2::new((p.x - p.y) * ISO, -(p.x + p.y) * ISO / 2.0),
+            BoardView::TopDown => Vec2::splat(TILE),
+            BoardView::Isometric => Vec2::new(ISO, ISO / 2.0),
         }
+    }
+
+    /// World position of a point in board units. North is up in both views.
+    pub fn project(self, p: Vec2) -> Vec2 {
+        Vec2::new(p.x, -p.y) * self.scale()
     }
 
     /// The inverse of [`BoardView::project`].
     pub fn unproject(self, w: Vec2) -> Vec2 {
-        match self {
-            BoardView::TopDown => Vec2::new(w.x / TILE, -w.y / TILE),
-            BoardView::Isometric => {
-                let (u, v) = (w.x / ISO, -2.0 * w.y / ISO);
-                Vec2::new((u + v) / 2.0, (v - u) / 2.0)
-            }
-        }
+        let p = w / self.scale();
+        Vec2::new(p.x, -p.y)
     }
 
     pub fn centre(self, tile: Tile) -> Vec2 {
-        self.project(Vec2::new(tile.x as f32 + 0.5, tile.y as f32 + 0.5))
+        self.project(tile.centre())
     }
 
     /// The tile under a world position, if it is on the board.
     pub fn pick(self, board: &Board, world: Vec2) -> Option<Tile> {
-        let p = self.unproject(world).floor();
-        let tile = Tile::new(p.x as i32, p.y as i32);
+        let tile = Tile::at(self.unproject(world));
         board.contains(tile).then_some(tile)
     }
 
-    /// Draw order of upright markers: further south and east is nearer.
+    /// Draw order of upright markers: further south is nearer, and within a
+    /// row further east.
     pub fn depth(self, p: Vec2) -> f32 {
-        match self {
-            BoardView::TopDown => p.y * 0.001,
-            BoardView::Isometric => (p.x + p.y) * 0.001,
-        }
+        p.y * 0.001 + p.x * 0.000_001
     }
 
-    /// The transforms of the board's root (scale) and of its plane (turn).
-    /// Plane coordinates are tile coordinates with y pointing north:
-    /// `(x, -y)`.
+    /// The transforms of the board's root (scale) and of its plane. Plane
+    /// coordinates are board units with y pointing north: `(x, -y)`.
     pub fn transforms(self) -> (Transform, Transform) {
-        match self {
-            BoardView::TopDown => (
-                Transform::from_scale(Vec3::new(TILE, TILE, 1.0)),
-                Transform::IDENTITY,
-            ),
-            BoardView::Isometric => (
-                Transform::from_scale(Vec3::new(ISO * 2f32.sqrt(), ISO / 2f32.sqrt(), 1.0)),
-                Transform::from_rotation(Quat::from_rotation_z(-FRAC_PI_4)),
-            ),
-        }
+        (
+            Transform::from_scale(self.scale().extend(1.0)),
+            Transform::IDENTITY,
+        )
     }
 }
 
@@ -168,7 +157,7 @@ mod tests {
     #[test]
     fn every_tile_maps_to_itself_and_back() {
         let row = ".".repeat(100);
-        let board = Board::from_rows(&vec![row.as_str(); 100]);
+        let board = Board::from_rows(&vec![row.as_str(); 115]);
         for view in [BoardView::TopDown, BoardView::Isometric] {
             for tile in board.tiles() {
                 assert_eq!(view.pick(&board, view.centre(tile)), Some(tile), "{view:?}");
@@ -193,12 +182,36 @@ mod tests {
     }
 
     #[test]
-    fn north_is_up_or_upper_right() {
+    fn north_is_up_in_both_views() {
         let north = Vec2::new(5.0, 4.0);
         let here = Vec2::new(5.0, 5.0);
-        let top = BoardView::TopDown.project(north) - BoardView::TopDown.project(here);
-        assert!(top.y > 0.0 && top.x == 0.0);
-        let iso = BoardView::Isometric.project(north) - BoardView::Isometric.project(here);
-        assert!(iso.x > 0.0 && iso.y > 0.0);
+        for view in [BoardView::TopDown, BoardView::Isometric] {
+            let up = view.project(north) - view.project(here);
+            assert!(up.y > 0.0 && up.x == 0.0, "{view:?}");
+        }
+    }
+
+    #[test]
+    fn the_pointer_picks_the_nearest_hex() {
+        let row = ".".repeat(20);
+        let board = Board::from_rows(&vec![row.as_str(); 20]);
+        for view in [BoardView::TopDown, BoardView::Isometric] {
+            for tile in board
+                .tiles()
+                .filter(|t| (2..18).contains(&t.x) && (2..18).contains(&t.y))
+            {
+                // Points just inside the hex's sides and corners.
+                for k in 0..6 {
+                    let angle = std::f32::consts::FRAC_PI_3 * k as f32;
+                    let side = Vec2::from_angle(angle) * 0.45;
+                    let corner = Vec2::from_angle(angle + std::f32::consts::FRAC_PI_6)
+                        * (crate::rules::board::RADIUS * 0.9);
+                    for p in [side, corner] {
+                        let world = view.project(tile.centre() + p);
+                        assert_eq!(view.pick(&board, world), Some(tile), "{view:?} {p}");
+                    }
+                }
+            }
+        }
     }
 }

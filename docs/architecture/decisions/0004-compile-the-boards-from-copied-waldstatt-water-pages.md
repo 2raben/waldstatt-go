@@ -2,6 +2,7 @@
 tags: [adr]
 status: accepted
 date: 2026-11-20
+amended-by: [0008-lay-the-board-in-hexes.md]
 sources:
   - data/waters/README.md
   - src/rules/waters.rs
@@ -11,6 +12,10 @@ sources:
 ---
 
 # 0004 — Compile the boards from copied Waldstatt water pages
+
+Amended by [ADR 0008](0008-lay-the-board-in-hexes.md): the pages are rasterized
+into hexes by their centres, with the same half-step rule for rivers; copying
+and compiling them in still holds as below.
 
 ## Context
 

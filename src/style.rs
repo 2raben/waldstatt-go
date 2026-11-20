@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 
 use crate::rules::RivalId;
-use crate::rules::board::MAX_RIVALS;
+use crate::rules::board::{MAX_RIVALS, RADIUS, to_side};
 
 pub mod palette {
     use bevy::prelude::Color;
@@ -78,7 +78,7 @@ impl Plugin for StylePlugin {
         let shapes = Shapes {
             disc: images.add(shape(64, |d| (31.5 - d).clamp(0.0, 1.0))),
             ring: images.add(shape(64, |d| ((31.5 - d).min(d - 25.0)).clamp(0.0, 1.0))),
-            frame: images.add(frame(16)),
+            frame: images.add(frame(32)),
         };
         app.insert_resource(Fonts { bold })
             .insert_resource(shapes)
@@ -102,15 +102,28 @@ fn shape(size: u32, alpha: impl Fn(f32) -> f32) -> Image {
     image
 }
 
-/// A white square outline.
+/// A white outline of a hex standing point up, `size` pixels across its
+/// sides and as high as such a hex is.
 fn frame(size: u32) -> Image {
-    let mut image = blank(size, size);
+    let height = (size as f32 * 2.0 * RADIUS).round() as u32;
+    let mut image = blank(size, height);
+    let line = 2.5 / size as f32;
     if let Some(data) = image.data.as_mut() {
-        for y in 0..size {
+        for y in 0..height {
             for x in 0..size {
-                let edge = x < 2 || y < 2 || x >= size - 2 || y >= size - 2;
+                // In hex widths from the middle.
+                let d = Vec2::new(
+                    (x as f32 + 0.5) / size as f32 - 0.5,
+                    ((y as f32 + 0.5) / height as f32 - 0.5) * 2.0 * RADIUS,
+                );
+                let inside = to_side(d);
+                let alpha = if inside < 0.0 {
+                    0.0
+                } else {
+                    ((line - inside) * size as f32).clamp(0.0, 1.0)
+                };
                 let i = ((y * size + x) * 4) as usize;
-                data[i..i + 4].copy_from_slice(&[255, 255, 255, if edge { 255 } else { 0 }]);
+                data[i..i + 4].copy_from_slice(&[255, 255, 255, (alpha * 255.0) as u8]);
             }
         }
     }

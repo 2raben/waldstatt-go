@@ -146,8 +146,7 @@ impl Trail {
     }
 }
 
-/// The tiles still to go for the lead, each one step, straight or diagonal,
-/// from the one before.
+/// The tiles still to go for the lead, each one step from the one before.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Line(pub VecDeque<Tile>);
 
@@ -232,7 +231,7 @@ pub fn plan_step(
 ) -> Option<StepPlan> {
     let &to = ahead.front()?;
     let at = group.tile();
-    if !board.can_step(group.rival, at, to) || other_rival_there {
+    if !board.can_step(at, to) || other_rival_there {
         return None;
     }
     let plan = |kind, work, trees| Some(StepPlan { kind, work, trees });
@@ -269,14 +268,12 @@ pub fn plan_step(
     }
 }
 
-/// The line a group gets for the tiles drawn from its lead: steps straight or
-/// diagonal, each one tile, at most `line_limit(size)` tiles long, never onto
-/// a lake for a group too big for a ship, and never ending in a river. A
-/// diagonal step that may not be taken is made as two straight ones. Whether
-/// each tile can be cut is only known when the lead gets there.
+/// The line a group gets for the tiles drawn from its lead: steps to a
+/// neighbour, each one tile, at most `line_limit(size)` tiles long, never onto
+/// a lake for a group too big for a ship, and never ending in a river.
+/// Whether each tile can be cut is only known when the lead gets there.
 pub fn plan_line(board: &Board, tuning: &Tuning, group: &Group, tiles: &[Tile]) -> VecDeque<Tile> {
     let limit = line_limit(group.size());
-    let rival = group.rival;
     let mut line = VecDeque::new();
     let mut at = group.tile();
     for &tile in tiles {
@@ -285,19 +282,10 @@ pub fn plan_line(board: &Board, tuning: &Tuning, group: &Group, tiles: &[Tile]) 
         if line.len() >= limit || too_big {
             break;
         }
-        if board.can_step(rival, at, tile) {
-            line.push_back(tile);
-        } else if at.chebyshev(tile) == 1
-            && line.len() + 2 <= limit
-            && let Some(corner) = [Tile::new(tile.x, at.y), Tile::new(at.x, tile.y)]
-                .into_iter()
-                .find(|&c| board.can_step(rival, at, c) && board.can_step(rival, c, tile))
-        {
-            line.push_back(corner);
-            line.push_back(tile);
-        } else {
+        if !board.can_step(at, tile) {
             break;
         }
+        line.push_back(tile);
         at = tile;
     }
     while line
@@ -400,7 +388,7 @@ fn file_order_from(board: &Board, group: &Group, trail: &Trail, first: usize) ->
     let wanted: BTreeSet<Tile> = group.tiles().collect();
     let paths = Paths::search(
         &[group.members[first].tile],
-        |t| board.steps(group.rival, t),
+        |t| board.steps(t),
         |t| open.contains(&t).then_some(1),
         |_| true,
         &wanted,
@@ -493,7 +481,7 @@ pub fn split_group(
     new.target = new.tile();
     let nearest = |tile: Tile, g: &Group| {
         g.tiles()
-            .map(|t| t.chebyshev(tile))
+            .map(|t| t.distance(tile))
             .min()
             .unwrap_or(i32::MAX)
     };
@@ -531,16 +519,17 @@ mod tests {
     }
 
     #[test]
-    fn a_diagonal_is_one_tile_unless_it_would_slip_past_water() {
-        let board = Board::from_rows(&["....", "....", "~...", "...."]);
+    fn a_line_steps_from_neighbour_to_neighbour() {
+        let board = Board::from_rows(&["....", " ....", "~...", " ...."]);
         let tuning = Tuning::default();
         let group = group_at(Tile::new(0, 0), 1);
-        let diagonal = [Tile::new(1, 1), Tile::new(2, 2), Tile::new(3, 3)];
-        assert_eq!(plan_line(&board, &tuning, &group, &diagonal).len(), 3);
-        // From (0, 1) to (1, 2) would pass the river's corner at (0, 2).
-        let from = group_at(Tile::new(0, 1), 1);
-        let line = plan_line(&board, &tuning, &from, &[Tile::new(1, 2)]);
-        assert_eq!(line, VecDeque::from([Tile::new(1, 1), Tile::new(1, 2)]));
+        // South-east twice, then into the river south-west: never ending there.
+        let down = [Tile::new(0, 1), Tile::new(1, 2), Tile::new(1, 3)];
+        assert_eq!(plan_line(&board, &tuning, &group, &down).len(), 3);
+        let into = [Tile::new(0, 1), Tile::new(0, 2)];
+        assert_eq!(plan_line(&board, &tuning, &group, &into).len(), 1);
+        // A tile two steps away is no step.
+        assert!(plan_line(&board, &tuning, &group, &[Tile::new(1, 1)]).is_empty());
     }
 
     #[test]
@@ -563,7 +552,7 @@ mod tests {
     fn margins_and_trees_decide_each_step() {
         let mut board = Board::from_rows(&["....~", "....."]);
         let tuning = Tuning::default();
-        board.set_open(Tile::new(3, 1), Some(RivalId(1)));
+        board.set_open(Tile::new(2, 1), Some(RivalId(1)));
         let mut group = group_at(Tile::new(1, 0), 1);
         let step = |board: &Board, group: &Group, to: Tile| {
             plan_step(board, &tuning, group, &VecDeque::from([to]), false)
@@ -572,7 +561,7 @@ mod tests {
             step(&board, &group, Tile::new(0, 0)).map(|p| p.kind),
             Some(Move::Cut)
         );
-        // Diagonally next to the other rival's open tile: in its margin.
+        // Next to the other rival's open tile: in its margin.
         assert_eq!(step(&board, &group, Tile::new(2, 0)), None);
         group.members[0].tile = Tile::new(3, 0);
         assert_eq!(

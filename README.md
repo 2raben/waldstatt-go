@@ -40,10 +40,11 @@ at random over the forest.
 - **Cut.** Press on any of your groups (a Waldmensch, its badge or its clearing) and
   drag a line over the forest, or click where the selected group should go and it
   finds the fastest way. A group of one goes ten tiles, two twenty, four thirty:
-  `(log2(size) + 1) × 10`, a diagonal counting as one. Where a line is blocked, it
-  finds another way. The one you pressed (or the one nearest the clearing you
-  pressed) leads: it cuts tile by tile and earns the trees, faster the bigger its
-  group; the others follow over the clearing, never more than two tiles apart.
+  `(log2(size) + 1) × 10`, one tile per step to a neighbouring hex. Where a line
+  is blocked, it finds another way. The one you pressed (or the one nearest the
+  clearing you pressed) leads: it cuts tile by tile and earns the trees, faster
+  the bigger its group; the others follow over the clearing, never more than two
+  tiles apart.
 - **Gather.** When the line is done, the Waldleute gather as near to its end as
   they can, one to a tile, cutting where they must; water, the edge, other rivals'
   margins and your other clearings stop them.
@@ -55,8 +56,9 @@ at random over the forest.
   so a ring that is closing traps a group before it closes.
 - **Enclose.** Your open tiles, the water and the board's edge split the board; a
   ring round another rival's clearing takes its Waldleute, its trees and its
-  clearing into the group that closed it. Rings hold diagonally. Waldleute in a
-  river, or already across it, stay free; a ring round a lake takes the boat on it.
+  clearing into the group that closed it. The board is cut in hexes, which meet
+  side to side, so a ring holds wherever it closes. Waldleute in a river, or
+  already across it, stay free; a ring round a lake takes the boat on it.
 - **Water.** Wading through a river takes ten times as long as cutting and costs
   trees; a lake needs a ship (twenty times as long, trees, at most ten Waldleute,
   who all go aboard).

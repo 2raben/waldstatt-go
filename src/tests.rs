@@ -292,7 +292,7 @@ fn standing_still_the_trail_grows_back_to_the_group() {
 }
 
 #[test]
-fn a_click_sends_the_group_the_fastest_way_diagonally() {
+fn a_click_sends_the_group_the_fastest_way() {
     let f = field(20, 20);
     let mut sim = Sim::new(setup(&rows(&f), vec![vec![(0, 0)]]));
     let tuning = sim.tuning();
@@ -311,8 +311,8 @@ fn a_click_sends_the_group_the_fastest_way_diagonally() {
     goto(&mut sim, 5, 5);
     let took = sim.until_at(FIRST, (5, 5), 2000);
     assert!(
-        took <= 5 * per_tile + 2,
-        "five diagonal tiles: {took} steps"
+        took <= 8 * per_tile + 2,
+        "eight tiles, one per step: {took} steps"
     );
     // No further than the tiles a group of one may go: ten.
     goto(&mut sim, 19, 5);
@@ -344,10 +344,11 @@ fn a_line_with_no_way_round_stops_short() {
     );
     sim.steps(2000);
     let group = sim.group(FIRST);
-    // (5, 0) touches B's tile (6, 1) diagonally.
-    assert_eq!(group.tile(), Tile::new(4, 0));
+    // (6, 0) touches B's tile (6, 1), which lies south-east of (5, 0)'s
+    // neighbour; the margin closes the row and there is no way round.
+    assert_eq!(group.tile(), Tile::new(5, 0));
     assert!(sim.groups()[0].2.0.is_empty());
-    assert_eq!(sim.board().open(Tile::new(5, 0)), None);
+    assert_eq!(sim.board().open(Tile::new(6, 0)), None);
 }
 
 #[test]
@@ -406,7 +407,9 @@ fn standing_still_they_gather_round_the_end_of_their_line() {
     sim.until_at(FIRST, (12, 4), 3000);
     sim.steps(STEPS_PER_SECOND * 30);
     let group = sim.group(FIRST);
-    let expected = vec![(11, 4), (12, 3), (12, 4), (12, 5), (13, 4)];
+    // The end and four of its six neighbours; of those equally near, the
+    // northern ones.
+    let expected = vec![(11, 3), (11, 4), (12, 3), (12, 4), (13, 4)];
     assert_eq!(tiles_of(&group), expected, "as near to the end as they can");
     let mut trail: Vec<(i32, i32)> = sim.trail(FIRST).tiles().map(|t| (t.x, t.y)).collect();
     trail.sort();
@@ -558,10 +561,9 @@ fn going_to_another_clearing_merges_the_groups() {
     assert_eq!(sim.groups()[0].0.size(), 2);
 }
 
-/// A 12 × 12 field where A has opened a ring round B's group at (5, 5),
-/// except at (8, 4) and (8, 5). A's group waits outside at (10, 4): a group
-/// standing right beside a one-tile gap would already close the ring
-/// diagonally.
+/// A 12 × 12 field where A has opened a ring round B's group at (5, 5):
+/// rows 2 and 8 and columns 2 and 8, which zigzag down the rows, except at
+/// (8, 4) and (8, 5). A's group waits outside at (10, 4).
 fn ring_with_a_gap() -> Sim {
     let f = field(12, 12);
     let mut sim = Sim::new(setup(&rows(&f), vec![vec![(10, 4)], vec![(5, 5)]]));
@@ -614,7 +616,7 @@ fn closing_a_ring_round_a_clearing_takes_the_whole_group() {
     let (by, from, into, size, part, ring) = enclosed.expect("the enclosure is recorded");
     assert_eq!((by, from, into, size), (A, B, FIRST, 3));
     assert_eq!(part, 25);
-    assert!(ring >= 24, "the ring round it is recorded: {ring}");
+    assert_eq!(ring, 22, "the ring round it is recorded");
     // B has no Waldleute left: the game is over.
     sim.steps(1);
     let outcome = sim.game().outcome.clone().expect("the game ended");
@@ -779,7 +781,7 @@ fn a_new_waldmensch_turns_up_somewhere_in_the_forest() {
         assert_eq!(sim.board().open(tile), Some(rival));
         for (other, ..) in &groups {
             if other.id != fresh[0].id {
-                assert!(other.tile().chebyshev(tile) > 1, "away from everyone");
+                assert!(other.tile().distance(tile) > 1, "away from everyone");
             }
         }
     }
@@ -827,7 +829,7 @@ fn rivals_start_scattered_at_random_over_a_real_board() {
         assert_eq!(a.size(), 1);
         for (b, ..) in &groups {
             if a.id != b.id {
-                assert!(a.tile().chebyshev(b.tile()) > 1, "nobody next to anybody");
+                assert!(a.tile().distance(b.tile()) > 1, "nobody next to anybody");
             }
         }
     }

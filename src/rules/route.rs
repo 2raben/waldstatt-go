@@ -1,8 +1,8 @@
 //! Finding a way: the fastest line for a group's lead to a tile, as its rival
 //! knows the board.
 //!
-//! A line found this way is like a drawn one: steps straight or diagonal, each
-//! one tile, no more tiles than the group may go. It costs what the lead's work
+//! A line found this way is like a drawn one: steps to a neighbour, each one
+//! tile, no more tiles than the group may go. It costs what the lead's work
 //! would: walking the rival's own clearing, cutting forest, wading, launching
 //! and sailing. Another rival's clearing and its margin block only where the
 //! rival sees them now; land it has never seen counts as forest. So a way
@@ -20,6 +20,10 @@ use super::tuning::Tuning;
 const CROSSING: u32 = 3;
 /// The most tiles one search looks at.
 const SEARCH_LIMIT: usize = 6000;
+/// Work is counted this many times finer in a search, to break ties.
+const SCALE: u32 = 16;
+/// The most a step pays for straying from the straight way, in those units.
+const STRAY: f32 = 8.0;
 
 /// The fastest way from the group's lead to `to`, at most `budget` tiles,
 /// never through tiles where `avoid` holds unless it holds at `to`; empty if
@@ -59,7 +63,7 @@ pub fn route(
             (_, Ground::Land) => {
                 if board.open(b) == Some(rival) {
                     Some(tuning.walk_work)
-                } else if others(b) || b.neighbours8().into_iter().any(others) {
+                } else if others(b) || b.neighbours().into_iter().any(others) {
                     None
                 } else {
                     Some(tuning.cut_work)
@@ -72,10 +76,14 @@ pub fn route(
         }
     };
     // A* over the board, never underestimating: no step costs less than a walk.
-    let least = tuning.walk_work.min(tuning.sail_work);
-    // Costs are doubled, and a diagonal step costs one more, so of ways
-    // equally fast the straightest wins.
-    let guess = |t: Tile| t.chebyshev(to) as u32 * least * 2;
+    // Costs are scaled, and a step pays a little for how far it strays from
+    // the straight way, so of ways equally fast the straightest wins; the
+    // most it pays is far less than any difference in work.
+    let least = tuning.walk_work.min(tuning.sail_work) * SCALE;
+    let guess = |t: Tile| t.distance(to) as u32 * least;
+    let (a, b) = (from.centre(), to.centre());
+    let across = (b - a).normalize_or_zero().perp();
+    let stray = |t: Tile| ((t.centre() - a).dot(across).abs() * 2.0).min(STRAY) as u32;
     let mut spent = vec![u32::MAX; board.len()];
     let mut before = vec![usize::MAX; board.len()];
     let mut done = vec![false; board.len()];
@@ -97,15 +105,14 @@ pub fn route(
         if i == goal || looked > SEARCH_LIMIT {
             break;
         }
-        for next in board.steps(rival, tile) {
+        for next in board.steps(tile) {
             let Some(j) = board.index(next) else {
                 continue;
             };
             if done[j] {
                 continue;
             }
-            if let Some(step) =
-                cost(tile, next).map(|s| s * 2 + u32::from(tile.manhattan(next) == 2))
+            if let Some(step) = cost(tile, next).map(|s| s * SCALE + stray(next))
                 && c + step < spent[j]
             {
                 spent[j] = c + step;
@@ -141,7 +148,7 @@ mod tests {
     use crate::rules::group::GroupId;
 
     #[test]
-    fn the_way_goes_diagonally_and_round_another_rivals_clearing() {
+    fn the_way_goes_straight_and_round_another_rivals_clearing() {
         let row = ".".repeat(12);
         let mut board = Board::from_rows(&[row.as_str(); 12]);
         let tuning = Tuning::default();
@@ -155,7 +162,10 @@ mod tests {
             |_| false,
             30,
         );
-        assert_eq!(way.len(), 5, "diagonally: {way:?}");
+        assert_eq!(way.len(), 8, "one tile per step: {way:?}");
+        let line = Tile::new(0, 0).line_to(Tile::new(5, 5));
+        let off = way.iter().filter(|t| !line.contains(t)).count();
+        assert!(off <= 2, "close to the straight way: {way:?}");
         board.set_open(Tile::new(3, 3), Some(RivalId(1)));
         let way = route(
             &board,
@@ -168,7 +178,7 @@ mod tests {
         );
         assert_eq!(way.back(), Some(&Tile::new(5, 5)));
         assert!(
-            way.iter().all(|t| t.chebyshev(Tile::new(3, 3)) > 1),
+            way.iter().all(|t| t.distance(Tile::new(3, 3)) > 1),
             "round the margin: {way:?}"
         );
         let short = route(&board, &tuning, &group, None, Tile::new(9, 9), |_| false, 4);

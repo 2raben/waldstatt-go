@@ -40,14 +40,6 @@ struct Figure {
 #[derive(Component)]
 struct Boat;
 
-fn centre(tile: Tile) -> Vec2 {
-    Vec2::new(tile.x as f32 + 0.5, tile.y as f32 + 0.5)
-}
-
-fn tile_of(at: Vec2) -> Tile {
-    Tile::new(at.x.floor() as i32, at.y.floor() as i32)
-}
-
 pub struct PeoplePlugin;
 
 impl Plugin for PeoplePlugin {
@@ -176,7 +168,7 @@ fn march(
         let ahead = line
             .0
             .front()
-            .map(|&next| (centre(next) - centre(lead_tile)).normalize_or_zero());
+            .map(|&next| (next.centre() - lead_tile.centre()).normalize_or_zero());
         let left_ahead = ahead.is_some_and(leftwards);
 
         // The boat: where Waldleute are on a lake, or on the shore being built.
@@ -186,7 +178,7 @@ fn march(
             group
                 .tiles()
                 .find(|&t| matches!(board.ground(t), Ground::Lake(_)))
-                .map(centre)
+                .map(Tile::centre)
         };
         let boat = match (afloat_at, ahead) {
             (Some(at), _) => Some((at, 1.0)),
@@ -197,8 +189,8 @@ fn march(
             }
             _ => None,
         };
-        let boat_tile = afloat_at.map(tile_of);
-        let shown_boat = boat.filter(|&(at, _)| own || sees(tile_of(at)));
+        let boat_tile = afloat_at.map(Tile::at);
+        let shown_boat = boat.filter(|&(at, _)| own || sees(Tile::at(at)));
         for &member in &members.0 {
             if let Ok((mut sprite, mut anchor, mut transform, mut visibility)) =
                 boats.get_mut(member)
@@ -257,7 +249,7 @@ fn march(
                 .filter(|&next| !board.is_water(next) && board.open(next).is_none());
             let cutting = cuts_towards.is_some() && (k != group.lead || doing == Activity::Cutting);
             if let Some(next) = cuts_towards.filter(|_| cutting) {
-                figure.left = leftwards(centre(next) - centre(waldmensch.tile));
+                figure.left = leftwards(next.centre() - waldmensch.tile.centre());
             } else if moved.length() > 1e-4 {
                 figure.left = leftwards(moved);
             }
@@ -286,7 +278,7 @@ fn march(
                 _ => Z_UPRIGHT + view.depth(figure.at) + 0.0002,
             };
             transform.translation = view.project(figure.at).extend(z);
-            visibility.set_if_neq(if own || sees(tile_of(figure.at)) {
+            visibility.set_if_neq(if own || sees(Tile::at(figure.at)) {
                 Visibility::Inherited
             } else {
                 Visibility::Hidden

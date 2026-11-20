@@ -3,6 +3,7 @@ tags: [adr]
 status: accepted
 date: 2026-11-20
 amends: [0001-move-groups-tile-by-tile-on-the-board.md]
+amended-by: [0008-lay-the-board-in-hexes.md]
 sources:
   - src/rules/group.rs
   - src/rules/moves.rs
@@ -16,6 +17,9 @@ sources:
 ---
 
 # 0007 — Spread each group over the tiles of its Waldleute
+
+Amended by [ADR 0008](0008-lay-the-board-in-hexes.md): a Waldmensch steps to any
+of the six neighbours of its hex, with no corner rule; the rest holds as below.
 
 ## Context
 

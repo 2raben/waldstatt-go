@@ -1,6 +1,7 @@
 //! The ground: the whole board painted from what the player's rival sees, in
-//! square chunks of a few tiles laid on the board's plane, so both views draw
-//! the very same tiles and a change repaints only its chunk.
+//! square chunks laid on the board's plane, each pixel from the hex it lies
+//! in, so both views draw the very same tiles and a change repaints only the
+//! pixels of its hex.
 //!
 //! Unexplored land is black. Land seen before is in fog, with its waters
 //! visible; other rivals' trails show only round the player's groups. Forest
@@ -18,6 +19,7 @@ use bevy::image::ImageSampler;
 use bevy::prelude::*;
 
 use crate::art::{Rgb, mix, noise, scale};
+use crate::rules::board::{RADIUS, to_side};
 use crate::rules::game::GameEvent;
 use crate::rules::rng::tile_hash;
 use crate::rules::sight::Sight;
@@ -25,10 +27,10 @@ use crate::rules::{Board, Game, Ground, Group, Rival, RivalId, Seat, Tile};
 use crate::style::{blank, rival_rgb};
 use crate::view::{BoardPlane, BoardRoot, BoardView};
 
-/// Pixels per tile side in the ground's images.
+/// Pixels per board unit (one step between hexes) in the ground's images.
 const PIXELS: usize = 16;
-/// Tiles per side of a chunk.
-const CHUNK: i32 = 16;
+/// Board units per side of a chunk.
+const CHUNK: usize = 16;
 /// How long an enclosure flashes, in seconds.
 const FLASH_SECONDS: f32 = 6.0;
 /// The shore's distance is kept in hundredths of a tile up to this.
@@ -43,10 +45,12 @@ pub struct Watcher(pub Option<RivalId>);
 pub struct GroundImage {
     chunks: Vec<Handle<Image>>,
     chunks_across: usize,
+    /// The board's pixels across and down.
+    pixels: (usize, usize),
     looks: Vec<u32>,
     view: BoardView,
     /// For every pixel of the board: how far the nearest tile of the other
-    /// kind (land for water, water for land) is, in hundredths of a tile.
+    /// kind (land for water, water for land) is, in hundredths of a step.
     shore: Vec<u8>,
     /// For every pixel of the board: smooth noise, for texture.
     grain: Vec<u8>,
@@ -72,7 +76,7 @@ struct Flash {
 #[derive(Component)]
 pub struct BoardScene;
 
-/// Where a forest tile's trees stand, in tile coordinates.
+/// Where a forest tile's trees stand, in board units.
 pub struct TreeSpot {
     pub at: Vec2,
     pub hash: u64,
@@ -83,12 +87,14 @@ pub struct TreeSpot {
 /// The trees of a tile: as many as it yields, placed by the seed. The ground
 /// draws their tops or stumps here, and the isometric view stands them here.
 pub fn tree_spots(seed: u64, tile: Tile, trees: u32) -> Vec<TreeSpot> {
+    // Round the hex's centre, well inside its sides.
     let pattern: &[(f32, f32)] = match trees {
         0 => &[],
-        1 => &[(0.5, 0.55)],
-        2 => &[(0.3, 0.4), (0.7, 0.62)],
-        _ => &[(0.27, 0.32), (0.73, 0.4), (0.48, 0.76)],
+        1 => &[(0.0, 0.05)],
+        2 => &[(-0.2, -0.1), (0.2, 0.12)],
+        _ => &[(-0.23, -0.18), (0.23, -0.1), (-0.02, 0.26)],
     };
+    let centre = tile.centre();
     let hash = tile_hash(seed ^ 0x7ee5, tile.x, tile.y);
     let mirror = hash & 1 == 1;
     pattern
@@ -97,9 +103,9 @@ pub fn tree_spots(seed: u64, tile: Tile, trees: u32) -> Vec<TreeSpot> {
         .map(|(k, &(x, y))| {
             let h = crate::rules::rng::mix(hash.wrapping_add(k as u64));
             let jitter = |shift: u32| ((h >> shift) & 0xFF) as f32 / 255.0 * 0.14 - 0.07;
-            let x = if mirror { 1.0 - x } else { x };
+            let x = if mirror { -x } else { x };
             TreeSpot {
-                at: Vec2::new(tile.x as f32 + x + jitter(0), tile.y as f32 + y + jitter(8)),
+                at: centre + Vec2::new(x + jitter(0), y + jitter(8)),
                 hash: h,
                 broadleaf: (h >> 16) % 10 >= 7,
                 size: 0.85 + ((h >> 24) & 0xFF) as f32 / 255.0 * 0.3,
@@ -124,32 +130,35 @@ pub fn spawn_scene(world: &mut World) {
         .find(|r| r.seat == Seat::Player)
         .map(|r| r.id);
     world.insert_resource(Watcher(watcher));
-    let (shore, grain, width, height, len) = {
+    let (shore, grain, pixels, len) = {
         let board = world.resource::<Board>();
         let seed = world.resource::<Game>().seed;
+        let pixels = board_pixels(board);
         (
             shore_distances(board),
-            grains(board, seed),
-            board.width,
-            board.height,
+            grains(pixels, seed),
+            pixels,
             board.len(),
         )
     };
-    let across = (width + CHUNK - 1) / CHUNK;
-    let down = (height + CHUNK - 1) / CHUNK;
+    let side = CHUNK * PIXELS;
+    let across = pixels.0.div_ceil(side);
+    let down = pixels.1.div_ceil(side);
     let mut chunks = Vec::new();
     let mut sprites = Vec::new();
     for cy in 0..down {
         for cx in 0..across {
-            let (x0, y0) = (cx * CHUNK, cy * CHUNK);
-            let size = Vec2::new(
-                (width - x0).min(CHUNK) as f32,
-                (height - y0).min(CHUNK) as f32,
-            );
-            let mut image = blank(size.x as u32 * PIXELS as u32, size.y as u32 * PIXELS as u32);
+            let (x0, y0) = (cx * side, cy * side);
+            let (w, h) = ((pixels.0 - x0).min(side), (pixels.1 - y0).min(side));
+            let mut image = blank(w as u32, h as u32);
             image.sampler = ImageSampler::linear();
             let image = world.resource_mut::<Assets<Image>>().add(image);
             chunks.push(image.clone());
+            // In board units.
+            let (at, size) = (
+                Vec2::new(x0 as f32, y0 as f32) / PIXELS as f32,
+                Vec2::new(w as f32, h as f32) / PIXELS as f32,
+            );
             sprites.push((
                 Name::new("Ground"),
                 Sprite {
@@ -157,7 +166,7 @@ pub fn spawn_scene(world: &mut World) {
                     custom_size: Some(size),
                     ..default()
                 },
-                Transform::from_xyz(x0 as f32 + size.x / 2.0, -(y0 as f32 + size.y / 2.0), 0.0),
+                Transform::from_xyz(at.x + size.x / 2.0, -(at.y + size.y / 2.0), 0.0),
             ));
         }
     }
@@ -181,7 +190,8 @@ pub fn spawn_scene(world: &mut World) {
         });
     world.insert_resource(GroundImage {
         chunks,
-        chunks_across: across as usize,
+        chunks_across: across,
+        pixels,
         looks: vec![u32::MAX; len],
         view,
         shore,
@@ -191,45 +201,74 @@ pub fn spawn_scene(world: &mut World) {
     });
 }
 
+/// The board's size in pixels.
+fn board_pixels(board: &Board) -> (usize, usize) {
+    let extent = board.extent() * PIXELS as f32;
+    (extent.x.ceil() as usize, extent.y.ceil() as usize)
+}
+
+/// The middle of a pixel, in board units.
+fn pixel_point(gx: usize, gy: usize) -> Vec2 {
+    Vec2::new(gx as f32 + 0.5, gy as f32 + 0.5) / PIXELS as f32
+}
+
+/// The pixels round a tile's hex, as ranges across and down, within the
+/// board's pixels; not all of them lie in the hex.
+fn hex_pixels(
+    tile: Tile,
+    pixels: (usize, usize),
+) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
+    let c = tile.centre() * PIXELS as f32;
+    let (half_w, half_h) = (0.5 * PIXELS as f32, RADIUS * PIXELS as f32);
+    let span = |from: f32, to: f32, most: usize| {
+        (from.floor().max(0.0) as usize).min(most)..(to.ceil().max(0.0) as usize).min(most)
+    };
+    (
+        span(c.x - half_w, c.x + half_w, pixels.0),
+        span(c.y - half_h, c.y + half_h, pixels.1),
+    )
+}
+
 /// How far each pixel lies from the nearest tile of the other kind, looking
-/// two tiles round.
+/// two steps round. The distance to another hex is measured to the line
+/// halfway between the two centres, which holds the side they share.
 fn shore_distances(board: &Board) -> Vec<u8> {
-    let stride = board.width as usize * PIXELS;
-    let mut out = vec![FAR; stride * board.height as usize * PIXELS];
+    let pixels = board_pixels(board);
+    let mut out = vec![FAR; pixels.0 * pixels.1];
     for tile in board.tiles() {
         let water = board.is_water(tile);
-        let others: Vec<Tile> = (-2..=2)
-            .flat_map(|dy| (-2..=2).map(move |dx| Tile::new(tile.x + dx, tile.y + dy)))
+        let others: Vec<Vec2> = tile
+            .within(2)
             .filter(|&t| board.contains(t) && board.is_water(t) != water)
+            .map(Tile::centre)
             .collect();
         if others.is_empty() {
             continue;
         }
-        for py in 0..PIXELS {
-            for px in 0..PIXELS {
-                let p = Vec2::new(
-                    tile.x as f32 + (px as f32 + 0.5) / PIXELS as f32,
-                    tile.y as f32 + (py as f32 + 0.5) / PIXELS as f32,
-                );
+        let here = tile.centre();
+        let (xs, ys) = hex_pixels(tile, pixels);
+        for gy in ys {
+            for gx in xs.clone() {
+                let p = pixel_point(gx, gy);
+                if Tile::at(p) != tile {
+                    continue;
+                }
                 let d = others
                     .iter()
-                    .map(|t| {
-                        let dx = (t.x as f32 - p.x).max(p.x - (t.x + 1) as f32).max(0.0);
-                        let dy = (t.y as f32 - p.y).max(p.y - (t.y + 1) as f32).max(0.0);
-                        dx.hypot(dy)
+                    .map(|&c| {
+                        (p.distance_squared(c) - p.distance_squared(here))
+                            / (2.0 * c.distance(here))
                     })
-                    .fold(f32::MAX, f32::min);
-                let i = (tile.y as usize * PIXELS + py) * stride + tile.x as usize * PIXELS + px;
-                out[i] = (d * 100.0).min(FAR as f32) as u8;
+                    .fold(f32::MAX, f32::min)
+                    .max(0.0);
+                out[gy * pixels.0 + gx] = (d * 100.0).min(FAR as f32) as u8;
             }
         }
     }
     out
 }
 
-fn grains(board: &Board, seed: u64) -> Vec<u8> {
-    let stride = board.width as usize * PIXELS;
-    let height = board.height as usize * PIXELS;
+fn grains((stride, height): (usize, usize), seed: u64) -> Vec<u8> {
     let mut out = Vec::with_capacity(stride * height);
     for y in 0..height {
         for x in 0..stride {
@@ -367,14 +406,20 @@ pub fn paint_ground(
         }
     }
 
-    // The changed tiles, chunk by chunk.
+    // The changed tiles, chunk by chunk: a hex may reach into four.
+    let side = CHUNK * PIXELS;
     let mut dirty: Vec<Vec<usize>> = vec![Vec::new(); ground.chunks.len()];
     for (i, &look) in looks.iter().enumerate() {
         if look != ground.looks[i] {
-            let tile = board.tile_at(i);
-            let chunk =
-                (tile.y / CHUNK) as usize * ground.chunks_across + (tile.x / CHUNK) as usize;
-            dirty[chunk].push(i);
+            let (xs, ys) = hex_pixels(board.tile_at(i), ground.pixels);
+            if xs.is_empty() || ys.is_empty() {
+                continue;
+            }
+            for cy in ys.start / side..=(ys.end - 1) / side {
+                for cx in xs.start / side..=(xs.end - 1) / side {
+                    dirty[cy * ground.chunks_across + cx].push(i);
+                }
+            }
         }
     }
     let painter = Painter {
@@ -383,7 +428,7 @@ pub fn paint_ground(
         iso: *view == BoardView::Isometric,
         shore: &ground.shore,
         grain: &ground.grain,
-        stride: board.width as usize * PIXELS,
+        pixels: ground.pixels,
     };
     for (chunk, tiles) in dirty.iter().enumerate() {
         if tiles.is_empty() {
@@ -393,11 +438,15 @@ pub fn paint_ground(
             continue;
         };
         let width = image.width() as usize;
+        let origin = (
+            chunk % ground.chunks_across * side,
+            chunk / ground.chunks_across * side,
+        );
         let Some(data) = image.data.as_mut() else {
             continue;
         };
         for &i in tiles {
-            painter.paint_tile(data, width, board.tile_at(i), looks[i]);
+            painter.paint_tile(data, width, origin, board.tile_at(i), looks[i]);
         }
     }
     ground.looks = looks;
@@ -423,7 +472,7 @@ fn look(board: &Board, tile: Tile, watcher: Option<RivalId>, sees: bool, has_see
             None => {
                 let margin = watcher.is_some_and(|w| {
                     std::iter::once(tile)
-                        .chain(tile.neighbours8())
+                        .chain(tile.neighbours())
                         .any(|t| board.open(t).is_some_and(|r| r != w))
                 });
                 FOREST | if margin { MARGIN } else { 0 }
@@ -459,12 +508,21 @@ struct Painter<'a> {
     iso: bool,
     shore: &'a [u8],
     grain: &'a [u8],
-    /// Pixels across the whole board.
-    stride: usize,
+    /// The board's pixels across and down.
+    pixels: (usize, usize),
 }
 
 impl Painter<'_> {
-    fn paint_tile(&self, data: &mut [u8], width: usize, tile: Tile, look: u32) {
+    /// Paints the pixels of a tile's hex that lie in a chunk of `width`
+    /// pixels across whose north-west pixel is `origin` on the board.
+    fn paint_tile(
+        &self,
+        data: &mut [u8],
+        width: usize,
+        origin: (usize, usize),
+        tile: Tile,
+        look: u32,
+    ) {
         let kind = look & 0xFF;
         let fog = matches!(kind, FOG_LAND | FOG_RIVER | FOG_LAKE);
         let flash_rival = RivalId(((look >> FLASH_SHIFT) & 0x3) as u8);
@@ -475,20 +533,20 @@ impl Painter<'_> {
         } else {
             Vec::new()
         };
-        let (cx, cy) = (
-            (tile.x % CHUNK) as usize * PIXELS,
-            (tile.y % CHUNK) as usize * PIXELS,
-        );
-        for py in 0..PIXELS {
-            for px in 0..PIXELS {
-                let gx = tile.x as usize * PIXELS + px;
-                let gy = tile.y as usize * PIXELS + py;
-                let g = self.grain[gy * self.stride + gx] as f32 / 255.0;
-                let shore = self.shore[gy * self.stride + gx] as f32 / 100.0;
-                let at = Vec2::new(
-                    tile.x as f32 + (px as f32 + 0.5) / PIXELS as f32,
-                    tile.y as f32 + (py as f32 + 0.5) / PIXELS as f32,
-                );
+        let height = data.len() / 4 / width;
+        let (xs, ys) = hex_pixels(tile, self.pixels);
+        let xs = xs.start.max(origin.0)..xs.end.min(origin.0 + width);
+        let ys = ys.start.max(origin.1)..ys.end.min(origin.1 + height);
+        let centre = tile.centre();
+        let stride = self.pixels.0;
+        for gy in ys {
+            for gx in xs.clone() {
+                let at = pixel_point(gx, gy);
+                if Tile::at(at) != tile {
+                    continue;
+                }
+                let g = self.grain[gy * stride + gx] as f32 / 255.0;
+                let shore = self.shore[gy * stride + gx] as f32 / 100.0;
                 let mut c = match kind {
                     UNKNOWN => BLACK,
                     RIVER | FOG_RIVER => water(true, shore, g, gx, gy),
@@ -502,7 +560,7 @@ impl Painter<'_> {
                         if let Some(stump) = stump(at, &spots) {
                             c = stump;
                         }
-                        if !self.iso && (px == 0 || py == 0) {
+                        if !self.iso && to_side(at - centre) < 0.7 / PIXELS as f32 {
                             c = scale(c, 0.85);
                         }
                         c
@@ -511,7 +569,7 @@ impl Painter<'_> {
                 if look & MARGIN != 0 {
                     c = mix(c, RED, 0.28);
                 }
-                if !self.iso && look & CLOSES_NEXT != 0 && at.distance(tile_centre(tile)) < 0.28 {
+                if !self.iso && look & CLOSES_NEXT != 0 && at.distance(centre) < 0.28 {
                     c = CANOPY_DARK;
                 }
                 if fog {
@@ -523,7 +581,7 @@ impl Painter<'_> {
                 if look & FLASH_RING != 0 {
                     c = mix(rival_rgb(flash_rival), WHITE, 0.6 * flash_level);
                 }
-                let i = ((cy + py) * width + cx + px) * 4;
+                let i = ((gy - origin.1) * width + gx - origin.0) * 4;
                 let [r, g, b] = c.map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8);
                 data[i..i + 4].copy_from_slice(&[r, g, b, 255]);
             }
@@ -577,10 +635,6 @@ impl Painter<'_> {
             None => scale(bank(mix(FLOOR_DARK, FLOOR_LIGHT, g), shore), shade),
         }
     }
-}
-
-fn tile_centre(tile: Tile) -> Vec2 {
-    Vec2::new(tile.x as f32 + 0.5, tile.y as f32 + 0.5)
 }
 
 /// Sand and mud where land meets water.
@@ -647,8 +701,8 @@ mod tests {
                 let spots = tree_spots(9, tile, trees);
                 assert_eq!(spots.len(), trees as usize);
                 for spot in spots {
-                    let inside = spot.at - Vec2::new(x as f32, y as f32);
-                    assert!((0.0..1.0).contains(&inside.x) && (0.0..1.0).contains(&inside.y));
+                    assert_eq!(Tile::at(spot.at), tile, "inside its hex");
+                    assert!(to_side(spot.at - tile.centre()) > 0.08, "off its sides");
                 }
             }
         }
@@ -656,15 +710,32 @@ mod tests {
 
     #[test]
     fn the_shore_is_measured_from_the_other_kind() {
-        let board = Board::from_rows(&["....", ".~~.", "....", "...."]);
+        let board = Board::from_rows(&["......", " .~~...", "......", " ......", "......"]);
         let shore = shore_distances(&board);
-        let stride = 4 * PIXELS;
-        let at = |x: f32, y: f32| {
-            shore[(y * PIXELS as f32) as usize * stride + (x * PIXELS as f32) as usize]
+        let stride = board_pixels(&board).0;
+        let at = |p: Vec2| {
+            let p = p * PIXELS as f32;
+            shore[p.y as usize * stride + p.x as usize]
         };
-        // Land touching the river, the river's middle, and land far from it.
-        assert!(at(0.97, 1.5) < 10);
-        assert!(at(1.5, 1.5) >= 45);
-        assert!(at(3.5, 3.9) > 150);
+        // The river is (1, 1) and (2, 1). Land just east of it, the middle of
+        // its eastern hex, half a step from the land round it, and land far
+        // from it.
+        let east = Tile::new(2, 1).centre();
+        assert!(at(east + Vec2::new(0.53, 0.0)) < 10);
+        assert!((40..=55).contains(&at(east)));
+        assert!(at(Tile::new(5, 4).centre()) > 150);
+    }
+
+    #[test]
+    fn hexes_meet_side_to_side() {
+        // Every pixel next to a hex's side lies in it or its neighbour there.
+        let tile = Tile::new(4, 3);
+        for (k, n) in tile.neighbours().into_iter().enumerate() {
+            let middle = (tile.centre() + n.centre()) / 2.0;
+            let d = (n.centre() - tile.centre()) * 0.02;
+            assert_eq!(Tile::at(middle - d), tile, "{k}");
+            assert_eq!(Tile::at(middle + d), n, "{k}");
+            assert!(to_side(middle - d - tile.centre()) < 0.03);
+        }
     }
 }

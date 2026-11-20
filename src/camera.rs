@@ -69,10 +69,10 @@ fn frame_new_board(
     let (false, Some(board)) = (roots.is_empty(), board) else {
         return;
     };
-    let home = rivals.iter().find(|r| Some(r.id) == watcher.0).map_or(
-        Vec2::new(board.width as f32, board.height as f32) / 2.0,
-        |r| Vec2::new(r.home.x as f32 + 0.5, r.home.y as f32 + 0.5),
-    );
+    let home = rivals
+        .iter()
+        .find(|r| Some(r.id) == watcher.0)
+        .map_or(board.extent() / 2.0, |r| r.home.centre());
     let width = windows.iter().next().map_or(1280.0, |w| w.width());
     for (mut transform, mut projection) in &mut cameras {
         transform.translation = view.project(home).extend(transform.translation.z);
@@ -136,10 +136,7 @@ fn pan_and_zoom(
         }
         // Keep the middle of the view on the board.
         let tile = view.unproject(at);
-        let clamped = tile.clamp(
-            Vec2::ZERO,
-            Vec2::new(board.width as f32, board.height as f32),
-        );
+        let clamped = tile.clamp(Vec2::ZERO, board.extent());
         at = view.project(clamped);
         transform.translation = at.extend(transform.translation.z);
         let mut wheel = scroll.delta.y;
