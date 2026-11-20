@@ -2,6 +2,8 @@
 //! win each other's Waldleute by enclosing them, as in Go.
 
 mod ai;
+#[cfg(not(target_arch = "wasm32"))]
+mod arena;
 mod art;
 mod camera;
 mod ground;
@@ -21,6 +23,11 @@ mod tests;
 use bevy::prelude::*;
 
 fn main() -> AppExit {
+    // `waldstatt-go arena` plays computer rivals against each other, headless.
+    #[cfg(not(target_arch = "wasm32"))]
+    if std::env::args().nth(1).as_deref() == Some("arena") {
+        return arena::run(std::env::args().skip(2));
+    }
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(window()),

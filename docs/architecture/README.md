@@ -62,7 +62,17 @@ for the browser ([ADR 0005](decisions/0005-build-the-same-crate-for-the-browser.
 
 **Computer rivals**, also headless: [src/ai.rs](../../src/ai.rs)
 (`ComputerRivalsPlugin`) decides for every computer seat four times a second, before
-the rules, from that rival's `Sight` only, and writes `Controls`.
+the rules, from that rival's `Sight` only, and writes `Controls`. Its ranges, ring
+sizes and exploring scores are a `Temperament`: one per rival from the
+`Temperaments` resource, the default unless the arena sets another.
+
+**Arena**, native only: [src/arena.rs](../../src/arena.rs). `waldstatt-go arena`
+(`mise run arena`) plays whole games of computer rivals, each in its own headless
+app with the rules and the computer rivals stepped like the game tests, several at
+once on separate threads. In each game one seat, a different one each game, plays
+a changed temperament and the others the default; the report gives its mean place
+with its standard error, wins, Waldleute taken and lost, and each game's rings and
+rivals out ([ADR 0009](decisions/0009-measure-computer-rivals-in-a-headless-arena.md)).
 
 **Presentation**, which needs a window:
 
@@ -238,7 +248,8 @@ as rasterizing, partitions, line planning and projections, in plain functions th
 unit tests can call directly. Read device input only in `input.rs` and `camera.rs`.
 
 New dependencies, simulation timing, and persisted formats can create lasting
-constraints; explain such choices in an ADR. Balance values belong in `Tuning`.
+constraints; explain such choices in an ADR. Balance values belong in `Tuning`, and
+the computer rivals' judgement values in `Temperament`.
 
 ## Validation
 
@@ -261,8 +272,12 @@ for pull requests; the Pages workflow builds the browser version on `main`.
   and ranking, placement on a real board, determinism of a whole game with computer
   rivals, and computer rivals expanding and enclosing each other.
 
+- **Arena tests** in [src/arena.rs](../../src/arena.rs) check its arguments and that
+  a game with a changed temperament plays the same every time.
+
 These tests guard rules, not feel. Play after any tuning change, and check views,
-drawing and input by hand.
+drawing and input by hand. The arena measures how temperaments place against each
+other, not whether they are fun to play against.
 
 ## Documentation boundaries
 

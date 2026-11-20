@@ -49,3 +49,4 @@ readable at [3b174ac](https://github.com/2raben/waldstatt-go/tree/3b174ac/docs/a
 | [0006 — Paint the isometric sprites in code](0006-paint-the-isometric-sprites-in-code.md) | accepted |
 | [0007 — Spread each group over the tiles of its Waldleute](0007-spread-each-group-over-the-tiles-of-its-waldleute.md) | accepted |
 | [0008 — Lay the board in hexes](0008-lay-the-board-in-hexes.md) | accepted |
+| [0009 — Measure computer rivals in a headless arena](0009-measure-computer-rivals-in-a-headless-arena.md) | accepted |

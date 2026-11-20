@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Play computer rivals against each other headless and report how a temperament places"
+set -euo pipefail
+# Arguments go to the arena, e.g. `mise run arena --games 80 hunt_range=24`;
+# `mise run arena --help` lists the options and the temperament's values.
+cargo run --locked --release -- arena "$@"

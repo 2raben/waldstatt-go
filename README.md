@@ -163,10 +163,12 @@ mise run build   # debug build; `mise run build --release` for release
 mise run check   # format, Clippy, build, and tests before a PR
 mise run web:build  # browser version into dist/web
 mise run web:serve  # build it and serve it on http://127.0.0.1:8080
+mise run arena   # computer rivals play each other headless; see --help
 mise tasks       # list every task
 ```
 
-Each task passes extra arguments to Cargo, for example `mise run test ring`. The
+Each task but `arena` passes extra arguments to Cargo, for example `mise run test ring`;
+`arena` passes them to the arena, for example `mise run arena --games 80 hunt_range=24`. The
 tasks are plain scripts in [.mise/tasks/](.mise/tasks/), so the equivalent Cargo
 commands also work:
 
