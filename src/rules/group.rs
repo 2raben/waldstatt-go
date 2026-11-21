@@ -74,6 +74,8 @@ pub struct Group {
     pub regrows: Option<Tile>,
     /// Where its line leads, to find another way there when it is blocked.
     pub goal: Option<Tile>,
+    /// During ring closure, the selected field's position from the tail end.
+    pub tail_offset: Option<usize>,
     /// Tiles its lead may still go towards the goal.
     pub budget: u32,
 }
@@ -92,6 +94,7 @@ impl Group {
             way: Vec::new(),
             regrows: None,
             goal: None,
+            tail_offset: None,
             budget: 0,
         }
     }
@@ -476,6 +479,7 @@ pub fn split_group(
         way: group.way.clone(),
         regrows: None,
         goal: None,
+        tail_offset: None,
         budget: 0,
     };
     new.target = new.tile();

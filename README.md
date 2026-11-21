@@ -44,7 +44,9 @@ at random over the forest.
   is blocked, it finds another way. The one you pressed (or the one nearest the
   clearing you pressed) leads: it cuts tile by tile and earns the trees, faster
   the bigger its group; the others follow over the clearing, never more than two
-  tiles apart.
+  tiles apart. Click the selected group's own trail to close a ring. Its lead
+  cuts across the forest towards the field you clicked. If you picked the second
+  field from the tail end, it keeps aiming for the second field as the tail moves.
 - **Gather.** When the line is done, the Waldleute gather as near to its end as
   they can, one to a tile, cutting where they must; water, the edge, other rivals'
   margins and your other clearings stop them.
@@ -78,6 +80,7 @@ at random over the forest.
 | Select a group | Click on a Waldmensch, its group's badge, or its clearing |
 | Draw a line from one of its Waldleute | Left mouse button on the group, drag, release |
 | Send the selected group the fastest way | Click beside it |
+| Close a ring with the selected group | Click its own trail, away from its Waldleute |
 | Draw from the selected group's lead | Left mouse button beside it, drag |
 | Send the selected group to another one, to merge | Double-click the other group |
 | Split a group | Right-click it, or T for the selected group |

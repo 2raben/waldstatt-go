@@ -48,10 +48,11 @@ for the browser ([ADR 0005](decisions/0005-build-the-same-crate-for-the-browser.
   tile costs the lead or why it may not), `plan_line`, `Paths` (cheapest ways over
   tiles), the file order and splitting.
 - `route.rs`: `route`, the fastest way for a lead to a tile as its rival knows
-  the board, for clicks and for lines that turn out blocked.
+  the board, for clicks and for lines that turn out blocked; to the group's own
+  trail, a way round that closes a ring.
 - `moves.rs`: `advance_groups`: the lead, merging, following and gathering, and
   the trail growing back ([ADR 0007](decisions/0007-spread-each-group-over-the-tiles-of-its-waldleute.md)).
-- `commands.rs`: `Order` (`Line`, `Goto`, `Split`), `Controls`, and
+- `commands.rs`: `Order` (`Line`, `Goto`, `Close`, `Split`), `Controls`, and
   `apply_commands`.
 - `enclosure.rs`: `Partition` (how one rival's open tiles divide the board, with
   all water or only rivers as walls), `resolve_enclosures`, and
@@ -99,7 +100,8 @@ the rules, from that rival's `Sight` only, and writes `Controls`.
    through the active view; the selection follows merges and enclosures; pointer and keys
    queue `Order::Line` (from the Waldmensch pressed on, or the one nearest the
    clearing pressed), `Order::Goto` (a click beside the selected group, or a
-   double click on another group) and `Order::Split` (the right button or a long
+   double click on another group), `Order::Close` (a click on the selected
+   group's trail) and `Order::Split` (the right button or a long
    press on a group, with a line when dragged) for the player's rival.
 2. `FixedUpdate` at 64 Hz, while a game runs: computer rivals decide; then, chained
    in `RuleSystems`, `apply_commands`, `advance_groups`, `resolve_enclosures`,
@@ -134,7 +136,12 @@ too big for a ship and never ending in a river. A click asks for the fastest way
 instead (`route.rs`: A* over the costs below, as the rival knows the board:
 others' clearings and margins only where it sees them now, unexplored land as
 forest; never next to the rival's other clearings; of ways equally fast, the one
-nearest the straight line), and when a line turns out
+nearest the straight line). Clicking the selected group's trail away from its
+Waldleute records the field's position counted from the oldest end. The lead
+aims for the field at that position in the current trail. When regrowth moves
+it, the lead replans with the tiles left in its movement allowance. Crossing
+open ground of the same rival costs twice a cut in this search, which favours
+a route through the forest to close the ring. When a line turns out
 blocked the lead finds another way to its end the same way, within
 `line_limit(size)` tiles in all; with no way round it stops short. Each step the lead adds `speed(size)` work towards the
 next tile; on reaching that tile's cost it enters. Cutting forest opens the tile,
@@ -250,7 +257,7 @@ for pull requests; the Pages workflow builds the browser version on `main`.
   one fixed step per update, with commands written to `Controls`: cutting speed by
   size, trails growing back, margins, merging (also by a click on another
   clearing), splitting (with a line, the half sent away staying apart, and not
-  when hemmed in), closing a ring, a trapped group, safety on water and not on the shore, wading, ships, new Waldleute, the end
+  when hemmed in), closing a ring (also by going to the own trail), a trapped group, safety on water and not on the shore, wading, ships, new Waldleute, the end
   and ranking, placement on a real board, determinism of a whole game with computer
   rivals, and computer rivals expanding and enclosing each other.
 

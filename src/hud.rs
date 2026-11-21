@@ -17,6 +17,8 @@ use crate::style::{clock, palette, rival_colour, text};
 /// The keys, also shown in the pause menu.
 pub const HELP: &str = "Klick auf eine Gruppe oder ihre Lichtung: Gruppe wählen · \
                         von dort ziehen: Linie ziehen · Klick daneben: schnellster Weg dorthin · \
+                        Klick auf die eigene Spur: Die Spitze folgt dem gewählten Feld, \
+                        auch wenn die Spur nachwächst · \
                         Doppelklick auf eine andere Gruppe: die gewählte geht zu ihr, sie vereinen sich · \
                         Rechtsklick auf eine Gruppe oder T: teilen · rechts ziehen: teilen und \
                         eine Hälfte losschicken · Rechtsklick daneben oder X: anhalten · \
@@ -26,7 +28,8 @@ pub const HELP: &str = "Klick auf eine Gruppe oder ihre Lichtung: Gruppe wählen
                         zwei Finger schieben und zoomen · Esc: Pause";
 
 /// The reminder during a game; Esc shows all keys.
-const SHORT_HELP: &str = "Klick: wählen oder hingehen · Ziehen: Linie · Doppelklick: zur Gruppe · \
+const SHORT_HELP: &str = "Klick: wählen oder hingehen · Klick auf die Spur: Ring schliessen · \
+                          Ziehen: Linie · Doppelklick: zur Gruppe · \
                           Rechtsklick: teilen · Tab: nächste Gruppe · V: Ansicht · \
                           Esc: Pause und alle Tasten";
 

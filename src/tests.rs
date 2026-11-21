@@ -538,6 +538,85 @@ fn a_group_hemmed_in_cannot_split() {
 }
 
 #[test]
+fn going_to_the_own_trail_cuts_round_and_closes_the_ring() {
+    let f = field(14, 12);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(9, 2)], vec![(5, 5)]]));
+    sim.add_members(FIRST, &[(10, 2), (11, 2), (12, 2)]);
+    // A C round B's Waldmensch, open to the east, the lead ending on (8, 8).
+    let mut line: Vec<(i32, i32)> = (3..=8).rev().map(|x| (x, 2)).collect();
+    line.extend((3..=8).map(|y| (3, y)));
+    line.extend((4..=8).map(|x| (x, 8)));
+    sim.line(A, FIRST, &line);
+    sim.until_at(FIRST, (8, 8), 3000);
+    assert_eq!(sim.group(SECOND).rival, B, "the C is open");
+    // A click on the trail's far end: walking back along the C is faster,
+    // but the way cuts across the opening.
+    let tail_offset = sim
+        .trail(FIRST)
+        .tiles()
+        .position(|t| t == Tile::new(8, 2))
+        .unwrap();
+    sim.send(
+        A,
+        Order::Close {
+            group: FIRST,
+            tail_offset,
+        },
+    );
+    for _ in 0..1500 {
+        sim.steps(1);
+        if sim.groups().iter().all(|(g, ..)| g.id != SECOND) {
+            return;
+        }
+    }
+    panic!("the ring did not close round B's Waldmensch");
+}
+
+#[test]
+fn closing_a_ring_follows_the_selected_field_as_the_tail_moves() {
+    let f = field(12, 10);
+    let mut sim = Sim::new(setup(&rows(&f), vec![vec![(6, 2)]]));
+    // A full trail of ten fields. Each fresh cut now takes one off the tail.
+    sim.line(
+        A,
+        FIRST,
+        &[
+            (5, 2),
+            (4, 2),
+            (3, 2),
+            (3, 3),
+            (3, 4),
+            (3, 5),
+            (4, 5),
+            (5, 5),
+            (6, 5),
+        ],
+    );
+    sim.until_at(FIRST, (6, 5), 1000);
+    let offset = 1;
+    let clicked = Tile::new(5, 2);
+    assert_eq!(sim.trail(FIRST).0[offset].0, clicked);
+    sim.send(
+        A,
+        Order::Close {
+            group: FIRST,
+            tail_offset: offset,
+        },
+    );
+    for _ in 0..700 {
+        let target = sim.trail(FIRST).0[offset].0;
+        sim.steps(1);
+        let (head, _, line) = sim.groups().remove(0);
+        if line.0.is_empty() {
+            assert_ne!(target, clicked, "regrowth moved the selected field");
+            assert_eq!(head.tile(), target, "the head caught the moving field");
+            return;
+        }
+    }
+    panic!("the head never caught its tail");
+}
+
+#[test]
 fn going_to_another_clearing_merges_the_groups() {
     // A double click on the second group sends the first the fastest way there.
     let f = field(30, 5);
