@@ -38,6 +38,8 @@ pub enum Order {
         from: Tile,
         to: Tile,
     },
+    /// The current lead chases the selected position in its own trail.
+    Close { group: GroupId, tail_offset: usize },
     /// Split the group in two. Without `from`, the half furthest back from
     /// the lead goes its own way; with it, the half nearest the Waldmensch
     /// standing on `from` goes, led by it along `tiles` as a drawn line. A
@@ -62,9 +64,10 @@ impl Order {
 
     pub fn group(&self) -> GroupId {
         match self {
-            Order::Line { group, .. } | Order::Goto { group, .. } | Order::Split { group, .. } => {
-                *group
-            }
+            Order::Line { group, .. }
+            | Order::Goto { group, .. }
+            | Order::Close { group, .. }
+            | Order::Split { group, .. } => *group,
         }
     }
 }
@@ -143,6 +146,7 @@ pub fn apply_commands(
                             &board,
                             &tuning,
                             &group,
+                            &trail,
                             sight,
                             *to,
                             |t| avoid.contains(&t),
@@ -150,9 +154,15 @@ pub fn apply_commands(
                         )
                     }
                     Order::Line { tiles, .. } => plan_line(&board, &tuning, &group, tiles),
-                    Order::Split { .. } => continue,
+                    _ => continue,
                 };
                 give_line(&mut group, &mut line, planned, before);
+            }
+            Order::Close { tail_offset, .. } => {
+                // The movement step resolves the field against the live trail.
+                group.tail_offset = Some(tail_offset);
+                group.goal = None;
+                group.budget = line_limit(group.size()) as u32;
             }
             Order::Split { from, tiles, .. } => {
                 let sight = sights.iter().find(|(r, _)| r.id == rival).map(|(_, s)| s);
@@ -194,6 +204,7 @@ pub fn apply_commands(
 fn give_line(group: &mut Group, line: &mut Line, planned: VecDeque<Tile>, before: usize) {
     // A way round something blocking may use the whole allowance.
     group.goal = planned.back().copied();
+    group.tail_offset = None;
     group.budget = line_limit(group.size()) as u32;
     let lead = group.lead;
     if lead != before || planned.front() != line.0.front() {

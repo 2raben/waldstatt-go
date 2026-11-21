@@ -234,7 +234,32 @@ fn lead_step(
     let group = &mut body.group;
     group.lead = group.lead.min(group.members.len() - 1);
     let lead = group.lead;
+    let way_to = |group: &Group, tile, blocked| {
+        route(
+            board,
+            tuning,
+            group,
+            &body.trail,
+            sight,
+            tile,
+            |t| Some(t) == blocked || owners.near_other(board, t, i),
+            group.budget,
+        )
+    };
+    if let Some(offset) = group.tail_offset {
+        let target = body.trail.0.get(offset).map(|&(tile, _)| tile);
+        if target.is_none() || target != group.goal {
+            body.line.0 = target
+                .map(|tile| way_to(group, tile, None))
+                .unwrap_or_default();
+            group.goal = target;
+        }
+    }
     let Some(&next) = body.line.0.front() else {
+        if group.tail_offset.take().is_some() {
+            group.goal = None;
+            group.target = group.tile();
+        }
         group.members[lead].progress = 0;
         group.members[lead].toward = None;
         return None;
@@ -245,8 +270,7 @@ fn lead_step(
         // The line runs into something it may not cross: another way to where
         // it leads, or it stops short.
         if let Some(goal) = group.goal.filter(|_| group.budget > 0) {
-            let avoid = |t: Tile| t == next || owners.near_other(board, t, i);
-            let way = route(board, tuning, group, sight, goal, avoid, group.budget);
+            let way = way_to(group, goal, Some(next));
             if !way.is_empty() {
                 body.line.0 = way;
                 let member = &mut group.members[lead];
@@ -256,6 +280,7 @@ fn lead_step(
             }
         }
         group.goal = None;
+        group.tail_offset = None;
         body.line.0.clear();
         let member = &mut group.members[lead];
         member.progress = 0;
@@ -319,6 +344,7 @@ fn lead_step(
     if body.line.0.is_empty() {
         group.target = next;
         group.goal = None;
+        group.tail_offset = None;
     }
     place(crowd, board, i, group);
     Some((plan.kind, next))

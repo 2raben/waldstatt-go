@@ -7,12 +7,17 @@
 //! and sailing. Another rival's clearing and its margin block only where the
 //! rival sees them now; land it has never seen counts as forest. So a way
 //! may turn out blocked on the spot, and the lead then looks for another.
+//!
+//! A way to a tile of the group's own trail closes a ring: it cuts through
+//! the forest, and crossing the rival's clearing costs twice a cut instead of
+//! a walk, so the lead goes round the outside rather than back along its
+//! trail.
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
 
 use super::board::{Board, Ground, Tile};
-use super::group::Group;
+use super::group::{Group, Trail};
 use super::sight::Sight;
 use super::tuning::Tuning;
 
@@ -27,11 +32,13 @@ const STRAY: f32 = 8.0;
 
 /// The fastest way from the group's lead to `to`, at most `budget` tiles,
 /// never through tiles where `avoid` holds unless it holds at `to`; empty if
-/// there is none.
+/// there is none. If `to` is on the group's `trail`, the way closes a ring.
+#[allow(clippy::too_many_arguments)]
 pub fn route(
     board: &Board,
     tuning: &Tuning,
     group: &Group,
+    trail: &Trail,
     sight: Option<&Sight>,
     to: Tile,
     avoid: impl Fn(Tile) -> bool,
@@ -55,6 +62,11 @@ pub fn route(
     let sail = group.size() <= tuning.ship_capacity && group.trees >= tuning.ship_trees;
     let others = |t: Tile| sees(t) && board.open(t).is_some_and(|r| r != rival);
     let avoiding = !avoid(to);
+    let own = if trail.contains(to) {
+        tuning.cut_work * 2
+    } else {
+        tuning.walk_work
+    };
     let cost = |a: Tile, b: Tile| -> Option<u32> {
         if avoiding && avoid(b) {
             return None;
@@ -62,7 +74,7 @@ pub fn route(
         match (ground(a), ground(b)) {
             (_, Ground::Land) => {
                 if board.open(b) == Some(rival) {
-                    Some(tuning.walk_work)
+                    Some(own)
                 } else if others(b) || b.neighbours().into_iter().any(others) {
                     None
                 } else {
@@ -157,6 +169,7 @@ mod tests {
             &board,
             &tuning,
             &group,
+            &Trail::default(),
             None,
             Tile::new(5, 5),
             |_| false,
@@ -171,6 +184,7 @@ mod tests {
             &board,
             &tuning,
             &group,
+            &Trail::default(),
             None,
             Tile::new(5, 5),
             |_| false,
@@ -181,8 +195,44 @@ mod tests {
             way.iter().all(|t| t.distance(Tile::new(3, 3)) > 1),
             "round the margin: {way:?}"
         );
-        let short = route(&board, &tuning, &group, None, Tile::new(9, 9), |_| false, 4);
+        let short = route(
+            &board,
+            &tuning,
+            &group,
+            &Trail::default(),
+            None,
+            Tile::new(9, 9),
+            |_| false,
+            4,
+        );
         assert_eq!(short.len(), 4, "no more tiles than allowed");
+    }
+
+    #[test]
+    fn a_way_to_the_own_trail_cuts_across_to_close_the_ring() {
+        let row = ".".repeat(12);
+        let mut board = Board::from_rows(&[row.as_str(); 12]);
+        let tuning = Tuning::default();
+        let rival = RivalId(0);
+        // A trail cut west along row 2, down column 2 and east along row 8:
+        // open to the east, its lead at the end on (8, 8).
+        let mut tiles: Vec<Tile> = (2..=8).rev().map(|x| Tile::new(x, 2)).collect();
+        tiles.extend((3..=8).map(|y| Tile::new(2, y)));
+        tiles.extend((3..=8).map(|x| Tile::new(x, 8)));
+        let mut trail = Trail::default();
+        for (step, &tile) in tiles.iter().enumerate() {
+            board.set_open(tile, Some(rival));
+            trail.push(tile, step as u64);
+        }
+        let group = Group::new(GroupId(1), rival, Tile::new(8, 8));
+        let tail = Tile::new(8, 2);
+        let way = route(&board, &tuning, &group, &trail, None, tail, |_| false, 30);
+        assert_eq!(way.back(), Some(&tail), "{way:?}");
+        assert!(way.len() <= 7, "straight across the opening: {way:?}");
+        assert!(
+            way.iter().rev().skip(1).all(|&t| board.open(t).is_none()),
+            "through the forest, not back along the trail: {way:?}"
+        );
     }
 
     #[test]
@@ -201,6 +251,7 @@ mod tests {
             &board,
             &tuning,
             &group,
+            &Trail::default(),
             None,
             Tile::new(9, 1),
             |_| false,

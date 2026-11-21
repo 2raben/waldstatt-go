@@ -301,6 +301,8 @@ pub fn resolve_enclosures(
                 } else if lead_taken {
                     from.lead = 0;
                     from_line.0.clear();
+                    from.goal = None;
+                    from.tail_offset = None;
                     from.target = from.tile();
                 } else {
                     from.lead = from.member_on(lead_tile).unwrap_or(0);

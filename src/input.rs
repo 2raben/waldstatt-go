@@ -13,8 +13,10 @@
 //! Waldmensch, or the one nearest the clearing pressed, who leads from then
 //! on; moving back along the line takes it back. Pressing anywhere else
 //! drags from the selected group's lead, and a click there sends the group
-//! the fastest way to it (`Order::Goto`). A double click on another group
-//! sends the group selected before the fastest way to it, so they merge.
+//! the fastest way to it (`Order::Goto`). A click on the selected group's own
+//! trail, away from its Waldleute, sends its lead round through the forest,
+//! following the selected position as the tail moves. A double click on another
+//! group sends the group selected before the fastest way to it, so they merge.
 //! The right button on a group splits it; dragging on draws a line for the
 //! half nearest the Waldmensch pressed, which goes its own way along it.
 
@@ -56,6 +58,8 @@ pub enum Click {
     Select,
     /// Sends the group the fastest way to this tile.
     Goto(Tile),
+    /// Sends the lead after this position counted from the end of its tail.
+    Close(usize),
     /// Splits the group.
     Split,
 }
@@ -321,6 +325,16 @@ pub fn extend_line(tiles: &mut Vec<Tile>, start: Tile, to: Tile, limit: usize) {
     }
 }
 
+/// What the pointer is pressed on: one of the player's groups.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Under {
+    group: GroupId,
+    /// The Waldmensch pressed, or the one nearest the clearing pressed.
+    from: Tile,
+    /// Position in the trail when the press hit bare clearing.
+    tail_offset: Option<usize>,
+}
+
 /// The player's group under the pointer and the Waldmensch it is pressed at:
 /// the one on the tile under it, else the one whose figure or group badge it
 /// is on, nearest first, else the one nearest the tile on the group's
@@ -331,14 +345,18 @@ fn group_under(
     world: Option<Vec2>,
     me: RivalId,
     groups: &Query<(&Group, &Trail, &Drawn)>,
-) -> Option<(GroupId, Tile)> {
+) -> Option<Under> {
     let own = || groups.iter().filter(|(g, ..)| g.rival == me);
     if let Some(tile) = tile
         && let Some((group, ..)) = own()
             .filter(|(g, ..)| g.tiles().any(|t| t == tile))
             .min_by_key(|(g, ..)| g.id)
     {
-        return Some((group.id, tile));
+        return Some(Under {
+            group: group.id,
+            from: tile,
+            tail_offset: None,
+        });
     }
     if let Some(world) = world {
         let scale = view.figure_scale();
@@ -364,15 +382,23 @@ fn group_under(
             }
         }
         if let Some((_, id, t)) = best {
-            return Some((id, t));
+            return Some(Under {
+                group: id,
+                from: t,
+                tail_offset: None,
+            });
         }
     }
     let tile = tile?;
-    let (group, ..) = own()
-        .filter(|(_, trail, _)| trail.contains(tile))
-        .min_by_key(|(g, ..)| g.id)?;
+    let (group, offset) = own()
+        .filter_map(|(g, trail, _)| Some((g, trail.tiles().position(|t| t == tile)?)))
+        .min_by_key(|(g, _)| g.id)?;
     let nearest = group.tiles().min_by_key(|t| t.distance(tile))?;
-    Some((group.id, nearest))
+    Some(Under {
+        group: group.id,
+        from: nearest,
+        tail_offset: Some(offset),
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -422,7 +448,12 @@ fn pointer(
     for &press in &input.presses {
         match press {
             Press::Down(Button::Primary) => {
-                if let Some((id, from)) = under() {
+                if let Some(Under {
+                    group: id,
+                    from,
+                    tail_offset,
+                }) = under()
+                {
                     let before = match last_click.0.take() {
                         Some((when, group, before))
                             if group == id && now - when <= DOUBLE_CLICK =>
@@ -448,12 +479,19 @@ fn pointer(
                             before: None,
                         };
                     } else {
+                        // A click on the selected group's own trail closes a
+                        // ring there; a drag still draws from the Waldmensch
+                        // nearest the press.
+                        let click = match tail_offset {
+                            Some(offset) if selection.group == Some(id) => Click::Close(offset),
+                            _ => Click::Select,
+                        };
                         *draft = Draft {
                             group: Some(id),
                             from,
                             tiles: Vec::new(),
                             pressed: hover.0.or(Some(from)),
-                            click: Click::Select,
+                            click,
                             button: Button::Primary,
                             before: selection.group,
                         };
@@ -475,7 +513,10 @@ fn pointer(
                 if draft.group.is_some() && input.held(draft.button) {
                     // The right button while drawing takes the line back.
                     *draft = Draft::default();
-                } else if let Some((id, from)) = under() {
+                } else if let Some(Under {
+                    group: id, from, ..
+                }) = under()
+                {
                     selection.group = Some(id);
                     *draft = Draft {
                         group: Some(id),
@@ -506,6 +547,9 @@ fn pointer(
                             to,
                         },
                     ),
+                    (Some(_), Click::Close(tail_offset)) => {
+                        controls.send(me, Order::Close { group, tail_offset });
+                    }
                     (Some(_), Click::Split) => controls.send(me, Order::split(group)),
                     (None, _) if done.tiles.is_empty() => {}
                     (None, Click::Split) => controls.send(
