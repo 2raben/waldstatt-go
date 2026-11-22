@@ -47,11 +47,11 @@ impl Tile {
     }
 
     /// Axial coordinates `(q, r)`.
-    fn axial(self) -> (i32, i32) {
+    pub(crate) fn axial(self) -> (i32, i32) {
         (self.x - (self.y - (self.y & 1)) / 2, self.y)
     }
 
-    fn from_axial(q: i32, r: i32) -> Self {
+    pub(crate) fn from_axial(q: i32, r: i32) -> Self {
         Self::new(q + (r - (r & 1)) / 2, r)
     }
 

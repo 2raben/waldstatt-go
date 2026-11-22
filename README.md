@@ -168,7 +168,10 @@ mise tasks       # list every task
 ```
 
 Each task but `arena` passes extra arguments to Cargo, for example `mise run test ring`;
-`arena` passes them to the arena, for example `mise run arena --games 80 hunt_range=24`. The
+`arena` passes them to the arena. Computer rivals start hunting once their largest
+group has three Waldleute, while the other groups move to join it. For example,
+`mise run arena --games 12 rally_size=0` plays the distributed opening against
+the default on the same sequence of boards and seeds. The
 tasks are plain scripts in [.mise/tasks/](.mise/tasks/), so the equivalent Cargo
 commands also work:
 

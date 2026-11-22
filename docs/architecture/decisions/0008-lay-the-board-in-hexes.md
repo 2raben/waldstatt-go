@@ -91,7 +91,8 @@ hex it lies in.
 - Distances in the computer rivals and the tuning are counted in steps; their
   ranges were tuned for squares and are play-test values.
 - Rectangles of rows and columns are still closed rings: consecutive rows of one
-  column always touch, so the computer rivals' rectangular rings hold.
+  column always touch, so the original rectangular hunts also held. The rivals now plan along the
+  three hex axes, at least two steps from the visible enemy trail.
 
 ## The tell
 

@@ -1,6 +1,6 @@
-//! Computer rivals: a few rules, not a search. They spread out early, merge
-//! when threatened, close rings round small groups they see, and run or take
-//! to the water when a ring is closing round them.
+//! Computer rivals gather a hunting group of three. It closes rings round
+//! visible rivals while the other groups and new recruits move to join it.
+//! A threatened group can still flee or take to the water.
 //!
 //! They play through the same commands as the player and see only what their
 //! groups see: other rivals' groups and open tiles only where their [`Sight`]
@@ -30,13 +30,16 @@ const SEARCH_LIMIT: usize = 4000;
 /// against the default over many seeded games.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Temperament {
+    /// Size at which the largest group starts hunting while others join it.
+    /// Zero selects the distributed opening, which splits and hunts in teams.
+    pub rally_size: u32,
     /// Bigger enemies this close, in steps, make a group seek company.
     pub threat_range: i32,
     /// How far a group goes to join another, in steps.
     pub company_range: i32,
     /// How far a group looks for a group to enclose, in steps.
     pub hunt_range: i32,
-    /// A ring may be at most this many steps wide and high.
+    /// Maximum span of a ring in steps along each of the three hex axes.
     pub max_ring_side: i32,
     /// At most this many groups close one ring.
     pub hunters: usize,
@@ -63,6 +66,7 @@ pub struct Temperament {
 impl Default for Temperament {
     fn default() -> Self {
         Self {
+            rally_size: 3,
             threat_range: 8,
             company_range: 12,
             hunt_range: 18,
@@ -86,6 +90,7 @@ impl Temperament {
     /// The names [`Temperament::set`] takes, with their values.
     pub fn values(&self) -> Vec<(&'static str, i64)> {
         vec![
+            ("rally_size", self.rally_size.into()),
             ("threat_range", self.threat_range.into()),
             ("company_range", self.company_range.into()),
             ("hunt_range", self.hunt_range.into()),
@@ -111,6 +116,7 @@ impl Temperament {
             return Err(format!("{name}: {value} is negative"));
         }
         match name {
+            "rally_size" => self.rally_size = fit(name, value)?,
             "threat_range" => self.threat_range = fit(name, value)?,
             "company_range" => self.company_range = fit(name, value)?,
             "hunt_range" => self.hunt_range = fit(name, value)?,
@@ -159,6 +165,8 @@ pub struct Brains(BTreeMap<RivalId, Brain>);
 
 #[derive(Default)]
 struct Brain {
+    rally_group: Option<GroupId>,
+    ready_to_hunt: bool,
     hunt: Option<Hunt>,
 }
 
@@ -292,6 +300,9 @@ fn think(
     mut controls: ResMut<Controls>,
     mut brains: ResMut<Brains>,
 ) {
+    if game.step == 0 {
+        brains.0.clear();
+    }
     let mut rivals: Vec<_> = rivals.iter().collect();
     rivals.sort_by_key(|(rival, _)| rival.id);
     for (rival, sight) in rivals {
@@ -368,6 +379,11 @@ fn decide(
         }
     }
 
+    if temper.rally_size > 0 {
+        rally(view, game, own, enemies, brain, &mut busy, &mut orders);
+        return orders;
+    }
+
     // Merge when threatened by a bigger group.
     for &(group, _) in own {
         if busy.contains(&group.id) {
@@ -422,6 +438,88 @@ fn decide(
         }
     }
     orders
+}
+
+/// Gather around the largest group. On ties keep the current group, then
+/// prefer the shortest total distance from its recruits and the lowest ID.
+fn rally(
+    view: &View,
+    game: &Game,
+    own: &[(&Group, &Line)],
+    enemies: &[&Group],
+    brain: &mut Brain,
+    busy: &mut BTreeSet<GroupId>,
+    orders: &mut Vec<Order>,
+) {
+    let Some(&(hunter, hunter_line)) = own.iter().min_by_key(|(g, _)| {
+        let distance: i32 = own
+            .iter()
+            .map(|(other, _)| g.tile().distance(other.tile()))
+            .sum();
+        (
+            std::cmp::Reverse(g.size()),
+            Some(g.id) != brain.rally_group,
+            distance,
+            g.id,
+        )
+    }) else {
+        return;
+    };
+    brain.rally_group = Some(hunter.id);
+    brain.ready_to_hunt |= hunter.size() >= view.temperament.rally_size || own.len() == 1;
+
+    for (i, &(group, active)) in own.iter().enumerate() {
+        if busy.contains(&group.id) || !active.0.is_empty() {
+            continue;
+        }
+        let destination = if group.id == hunter.id {
+            if brain.ready_to_hunt {
+                continue;
+            }
+            // Meet the nearest recruit while the hunting group is forming.
+            let Some((nearest, _)) = own
+                .iter()
+                .filter(|(other, _)| other.id != hunter.id)
+                .min_by_key(|(other, _)| (hunter.tile().distance(other.tile()), other.id))
+            else {
+                continue;
+            };
+            nearest.tile()
+        } else {
+            hunter.tile()
+        };
+        // If the route fails, alternate retries with short local cuts that
+        // can earn trees for a crossing.
+        let idle_decisions = group.still / THINK_EVERY as u32;
+        if group.still <= THINK_EVERY as u32 || idle_decisions.is_multiple_of(2) {
+            orders.push(Order::Goto {
+                group: group.id,
+                from: group.tile(),
+                to: destination,
+            });
+        } else if let Some(mut way) = explore(view, game, group, own, i) {
+            way.truncate(3);
+            orders.push(line(group, way));
+        }
+    }
+
+    if brain.ready_to_hunt && !busy.contains(&hunter.id) {
+        hunt(
+            view,
+            game,
+            &[(hunter, hunter_line)],
+            enemies,
+            brain,
+            busy,
+            orders,
+        );
+        if !busy.contains(&hunter.id)
+            && hunter_line.0.is_empty()
+            && let Some(way) = explore(view, game, hunter, own, 0)
+        {
+            orders.push(line(hunter, way));
+        }
+    }
 }
 
 /// How many ring tiles a group takes on: what its trail holds open, less the
@@ -518,10 +616,25 @@ fn hunt(
         .collect();
     hunters.sort_by_key(|(g, _)| (g.tile().distance(target.tile()), g.id));
     hunters.truncate(temper.hunters);
-    // Hunters already on their piece keep it; hunters holding a piece wait.
+    busy.extend(hunters.iter().map(|(g, _)| g.id));
+    // When one group can finish the gap straight back to its own trail,
+    // follow that field through regrowth, just as a player's click does.
+    // Let an existing close spend its original movement allowance.
+    if hunters.iter().any(|(g, _)| g.tail_offset.is_some()) {
+        return;
+    }
+    for &(group, _) in &hunters {
+        if let Some(offset) = closing_offset(view, group, &ring, &left) {
+            orders.push(Order::Close {
+                group: group.id,
+                tail_offset: offset,
+            });
+            return;
+        }
+    }
+    // Keep assigned cuts. A hunter holding its piece can extend it into a neighbouring gap.
     let mut free = Vec::new();
     for (group, group_line) in hunters {
-        busy.insert(group.id);
         if group_line.0.back().is_some_and(|t| left.contains(t)) {
             for tile in &group_line.0 {
                 left.remove(tile);
@@ -531,7 +644,8 @@ fn hunt(
                 .trails
                 .get(&group.id)
                 .is_some_and(|trail| trail.tiles().any(|t| ring.contains(&t)));
-            if !(holding && group_line.0.is_empty()) {
+            let beside_gap = group.tile().neighbours().iter().any(|t| left.contains(t));
+            if !holding || !group_line.0.is_empty() || beside_gap {
                 free.push(group);
             }
         }
@@ -560,35 +674,81 @@ fn hunt(
                 None => continue,
             }
         };
-        for tile in &run {
+        way.extend(run.into_iter().skip(1));
+        way.truncate(line_limit(group.size()));
+        for tile in &way {
             left.remove(tile);
         }
-        way.extend(run.into_iter().skip(1));
         orders.push(line(group, way));
     }
 }
 
-/// A rectangle round the target and its trail, as a loop of tiles, at least
-/// two tiles off them so it can be cut, and widened until every tile on it can
-/// be. Sides that would lie beyond the board's edge are left out: the edge is
-/// a wall.
+/// The live trail field beyond the final uncut stretch of one straight side.
+fn closing_offset(
+    view: &View,
+    group: &Group,
+    ring: &BTreeSet<Tile>,
+    gap: &BTreeSet<Tile>,
+) -> Option<usize> {
+    let lead = group.tile();
+    if !ring.contains(&lead) || gap.len() >= line_limit(group.size()) {
+        return None;
+    }
+    let trail = view.trails.get(&group.id)?;
+    let steps = gap.len() as i32;
+    for direction in 0..6 {
+        let tail = lead.go(direction, steps + 1);
+        if ring.contains(&tail)
+            && (1..=steps).all(|n| gap.contains(&lead.go(direction, n)))
+            && let Some(offset) = trail.tiles().position(|tile| tile == tail)
+        {
+            return Some(offset);
+        }
+    }
+    None
+}
+
+/// Bound the visible clearing on all three hex axes, leaving at least one
+/// hex of forest between it and the hunters. Keep the full perimeter for
+/// testing whether the target is inside, even where the board edge is a wall.
 fn ring_round(view: &View, target: &Group) -> Option<Vec<Tile>> {
-    let body = trail_seen(view, target);
-    let x0 = body.iter().map(|t| t.x).min()?;
-    let x1 = body.iter().map(|t| t.x).max()?;
-    let y0 = body.iter().map(|t| t.y).min()?;
-    let y1 = body.iter().map(|t| t.y).max()?;
-    (2..=4).find_map(|pad| {
-        let ring = rectangle(
-            view.board,
-            view.temperament.max_ring_side,
-            (x0 - pad, y0 - pad, x1 + pad, y1 + pad),
-        )?;
-        needed_tiles(view, &ring)
+    let (q, r) = target.tile().axial();
+    let mut lo = [q, r, q + r];
+    let mut hi = lo;
+    for tile in trail_seen(view, target) {
+        let (q, r) = tile.axial();
+        for (i, value) in [q, r, q + r].into_iter().enumerate() {
+            lo[i] = lo[i].min(value);
+            hi[i] = hi[i].max(value);
+        }
+    }
+    for pad in 2..=4 {
+        let [q0, r0, sum0] = lo.map(|x| x - pad);
+        let [q1, r1, sum1] = hi.map(|x| x + pad);
+        if (q1 - q0).max(r1 - r0).max(sum1 - sum0) > view.temperament.max_ring_side {
+            break;
+        }
+        // Each corner is the intersection of two of the six bounding lines.
+        let corners = [
+            (sum0 - r0, r0),
+            (q1, r0),
+            (q1, sum1 - q1),
+            (sum1 - r1, r1),
+            (q0, r1),
+            (q0, sum0 - q0),
+        ]
+        .map(|(q, r)| Tile::from_axial(q, r));
+        let ring: Vec<_> = corners
             .iter()
-            .all(|&t| view.passable(t))
-            .then_some(ring)
-    })
+            .zip(corners.iter().cycle().skip(1))
+            .flat_map(|(&a, &b)| a.line_to(b))
+            .collect();
+        let needed = needed_tiles(view, &ring);
+        if !needed.is_empty() && needed.iter().all(|&t| view.passable(t)) {
+            return Some(ring);
+        }
+    }
+    None
 }
 
 /// The target's tile and the open tiles of its rival joined to it, as far as
@@ -611,51 +771,18 @@ fn trail_seen(view: &View, target: &Group) -> Vec<Tile> {
     body.into_iter().collect()
 }
 
-/// The loop of tiles round a rectangle, clockwise from the north-west, without
-/// the sides beyond the board's edge; `None` if it is too large.
-fn rectangle(
-    board: &Board,
-    max_side: i32,
-    (x0, y0, x1, y1): (i32, i32, i32, i32),
-) -> Option<Vec<Tile>> {
-    if x1 - x0 > max_side || y1 - y0 > max_side {
-        return None;
-    }
-    let (w, h) = (board.width, board.height);
-    let (left, top, right, bottom) = (x0 < 0, y0 < 0, x1 >= w, y1 >= h);
-    let (x0, y0, x1, y1) = (x0.max(0), y0.max(0), x1.min(w - 1), y1.min(h - 1));
-    let sides: [(bool, Vec<Tile>); 4] = [
-        (top, (x0..=x1).map(|x| Tile::new(x, y0)).collect()),
-        (right, (y0 + 1..=y1).map(|y| Tile::new(x1, y)).collect()),
-        (bottom, (x0..x1).rev().map(|x| Tile::new(x, y1)).collect()),
-        (left, (y0 + 1..y1).rev().map(|y| Tile::new(x0, y)).collect()),
-    ];
-    let ring: Vec<Tile> = sides
-        .into_iter()
-        .filter(|(edge, _)| !edge)
-        .flat_map(|(_, tiles)| tiles)
-        .collect();
-    (!ring.is_empty()).then_some(ring)
-}
-
 fn inside(ring: &[Tile], tile: Tile) -> bool {
-    let (x0, x1) = (
-        ring.iter().map(|t| t.x).min(),
-        ring.iter().map(|t| t.x).max(),
-    );
-    let (y0, y1) = (
-        ring.iter().map(|t| t.y).min(),
-        ring.iter().map(|t| t.y).max(),
-    );
-    matches!((x0, x1, y0, y1), (Some(x0), Some(x1), Some(y0), Some(y1))
-        if tile.x > x0 && tile.x < x1 && tile.y > y0 && tile.y < y1)
+    // A convex hex ring crosses each interior row at its left and right ends.
+    !ring.contains(&tile)
+        && ring.iter().any(|t| t.y == tile.y && t.x < tile.x)
+        && ring.iter().any(|t| t.y == tile.y && t.x > tile.x)
 }
 
 /// The ring's land tiles not yet open.
 fn needed_tiles(view: &View, ring: &[Tile]) -> BTreeSet<Tile> {
     ring.iter()
         .copied()
-        .filter(|&t| !view.ground(t).is_water() && !view.own_open(t))
+        .filter(|&t| view.board.contains(t) && !view.ground(t).is_water() && !view.own_open(t))
         .collect()
 }
 
@@ -817,6 +944,55 @@ mod tests {
             assert_eq!(value, default + 1, "{name}");
         }
         assert!(temperament.set("hunters", -1).is_err());
+    }
+
+    #[test]
+    fn planned_hex_rings_enclose_the_seen_clearing_even_at_the_board_edge() {
+        use crate::rules::enclosure::Partition;
+
+        for centre in [
+            Tile::new(8, 8),
+            Tile::new(8, 9),
+            Tile::new(0, 0),
+            Tile::new(15, 15),
+        ] {
+            let mut board = Board::from_rows(&["................"; 16]);
+            let target = Group::new(GroupId(1), RivalId(1), centre);
+            let hunter = RivalId(0);
+            let end = centre.go(if centre.x == 15 { 4 } else { 1 }, 2);
+            let mut body = centre.line_to(end);
+            body.push(centre);
+            for &t in &body {
+                board.set_open(t, Some(target.rival));
+            }
+            let mut sight = Sight::new(&board);
+            sight.look(&board, hunter, [centre].into_iter(), 8);
+            let view = View {
+                board: &board,
+                sight: &sight,
+                tuning: &Tuning::default(),
+                temperament: &Temperament::default(),
+                rival: hunter,
+                trails: &BTreeMap::new(),
+            };
+            let ring = ring_round(&view, &target).expect("a hunt fits");
+            assert_eq!(
+                ring.len(),
+                16,
+                "radius two, stretched two steps east or west"
+            );
+            for (&a, &b) in ring.iter().zip(ring.iter().cycle().skip(1)) {
+                assert!(a.is_next_to(b));
+                assert!(!inside(&ring, a));
+            }
+            for t in needed_tiles(&view, &ring) {
+                board.set_open(t, Some(hunter));
+            }
+            let partition = Partition::of(&board, hunter);
+            for t in body {
+                assert!(inside(&ring, t) && partition.encloses(&board, t), "{t:?}");
+            }
+        }
     }
 
     #[test]
