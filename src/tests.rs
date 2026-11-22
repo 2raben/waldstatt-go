@@ -939,6 +939,77 @@ fn the_same_seed_and_commands_play_the_same_game() {
 }
 
 #[test]
+fn computer_rivals_hunt_with_three_while_a_distant_recruit_is_still_joining() {
+    let f = field(60, 35);
+    let mut game = setup(
+        &rows(&f),
+        vec![vec![(11, 8), (14, 8), (55, 30)], vec![(9, 8)]],
+    );
+    game.seats[0] = Seat::Computer;
+    let mut sim = Sim::with_computers(game);
+    sim.add_members(FIRST, &[(12, 8)]);
+
+    // The pair and both recruits start by moving to meet one another.
+    sim.steps(1);
+    for (group, _, line) in sim.groups().into_iter().filter(|(g, ..)| g.rival == A) {
+        let destination = if group.id == FIRST {
+            Tile::new(14, 8)
+        } else {
+            Tile::new(11, 8)
+        };
+        let end = line.0.back().expect("the group has a rally route");
+        assert!(end.distance(destination) < group.tile().distance(destination));
+    }
+
+    for _ in 0..35 * STEPS_PER_SECOND {
+        sim.steps(1);
+        if sim
+            .game()
+            .events
+            .iter()
+            .any(|e| matches!(e, GameEvent::Enclosed { by, .. } if *by == A))
+        {
+            let sizes: Vec<_> = sim
+                .groups()
+                .iter()
+                .filter(|(g, ..)| g.rival == A)
+                .map(|(g, ..)| g.size())
+                .collect();
+            assert!(
+                sizes.contains(&4) && sizes.contains(&1),
+                "three hunters took the target before the fourth arrived: {sizes:?}"
+            );
+            return;
+        }
+    }
+    panic!("the hunting group failed to capture the visible rival");
+}
+
+#[test]
+fn a_computer_hunter_on_the_ring_cuts_round_and_closes_onto_its_tail() {
+    let f = field(24, 24);
+    let mut game = setup(&rows(&f), vec![vec![(11, 8)], vec![(9, 8)]]);
+    game.seats[0] = Seat::Computer;
+    let mut sim = Sim::with_computers(game);
+    sim.add_members(FIRST, &[(12, 8)]);
+
+    let mut followed_tail = false;
+    for _ in 0..20 * STEPS_PER_SECOND {
+        sim.steps(1);
+        followed_tail |= sim.group(FIRST).tail_offset.is_some();
+        if sim.game().events.iter().any(|event| {
+            matches!(
+                event, GameEvent::Enclosed { by, group, .. } if *by == A && *group == SECOND
+            )
+        }) {
+            assert!(followed_tail, "the hunter selected its own live trail");
+            return;
+        }
+    }
+    panic!("the hunter failed to take the stationary rival");
+}
+
+#[test]
 fn computer_rivals_expand_and_enclose() {
     let mut enclosures = 0;
     for seed in 1..=3 {

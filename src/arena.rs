@@ -38,7 +38,11 @@ Options:
   --board NAME   play only this board (default: all, in turn)
   --seed N       the first game's seed (default 1)
   --threads N    games played at once (default: all cores)
-  --help         this text and the temperament's values";
+  --help         this text and the temperament's values
+
+rally_size=3 starts the hunt with three Waldleute while the others join.
+rally_size=0 uses the distributed opening (threat_range, company_range,
+split_size and up to hunters groups on a ring).";
 
 /// What the arena plays.
 #[derive(Clone, Debug)]
@@ -62,7 +66,7 @@ struct Result {
     place: usize,
     /// Waldleute at the end, by rival.
     waldleute: Vec<u32>,
-    /// Rings that closed.
+    /// Group captures. A ring can enclose Waldleute from several groups.
     enclosures: usize,
     /// Waldleute the challenger took, and lost, by enclosing.
     taken: u32,
@@ -353,7 +357,7 @@ fn report(plan: &Plan, results: &[Result], took: Duration) {
         / n
         / rivals;
     println!(
-        "Each game      {enclosures:.1} rings closed, {out:.1} rivals out, {all:.1} Waldleute a rival at the end; {early} of {} ended early",
+        "Each game      {enclosures:.1} group captures, {out:.1} rivals out, {all:.1} Waldleute a rival at the end; {early} of {} ended early",
         results.len()
     );
     println!(
@@ -407,7 +411,7 @@ mod tests {
 
     #[test]
     fn a_game_in_the_arena_plays_the_same_every_time() {
-        let mut plan = plan(&["--minutes", "1", "--rivals", "3", "hunters=2"]);
+        let mut plan = plan(&["--minutes", "1", "--rivals", "3", "rally_size=0"]);
         plan.boards = vec![0];
         let boards = vec![build_board(&BOARDS[0]).expect("board builds")];
         let first = play(&plan, &boards, 1);

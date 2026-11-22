@@ -40,7 +40,9 @@ Alternatives considered:
 The computer rivals' judgement values are a `Temperament` in
 [src/ai.rs](../../../src/ai.rs). Each rival reads its own from the `Temperaments`
 resource, which gives the default to every rival the game doesn't name. The
-game ships only the default, so a game from a seed plays as before.
+game uses the default temperament for all computer seats. The opening now
+gathers a hunting group of three, with new recruits joining it. The arena
+retains the distributed opening as `rally_size=0` for comparison.
 
 `waldstatt-go arena` ([src/arena.rs](../../../src/arena.rs), `mise run arena`)
 plays whole games of computer rivals with the rules and the computer rivals
@@ -49,7 +51,8 @@ threads. Game *k* uses seed *first + k* and the boards in turn. Seat *k mod
 rivals* plays the challenger: the default temperament changed by `name=value`
 arguments. The other seats play the default. The report gives the
 challenger's mean place with its standard error, its wins, the Waldleute it
-took and lost, and each game's rings and rivals out. The arena is a
+took and lost, and the mean group captures and rivals out per game. A ring that
+captures several groups produces one enclosure event per captured group. The arena is a
 subcommand of the game's binary, compiled only for native targets.
 
 Values the arena finds better become the new defaults by hand, after

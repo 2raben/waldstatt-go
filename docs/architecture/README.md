@@ -62,17 +62,25 @@ for the browser ([ADR 0005](decisions/0005-build-the-same-crate-for-the-browser.
 
 **Computer rivals**, also headless: [src/ai.rs](../../src/ai.rs)
 (`ComputerRivalsPlugin`) decides for every computer seat four times a second, before
-the rules, from that rival's `Sight` only, and writes `Controls`. Its ranges, ring
-sizes and exploring scores are a `Temperament`: one per rival from the
-`Temperaments` resource, the default unless the arena sets another.
+the rules, from that rival's `Sight` only, and writes `Controls`. Its largest group meets nearby recruits until it has
+three Waldleute or is the only group left. It then hunts or explores while the
+other groups, including new arrivals, move to join it. An endangered group can
+still flee. The arena can change this threshold with `rally_size` or use the
+distributed opening with `rally_size=0` (merge under threat, split when calm,
+hunt with several groups). Hunters bound the
+visible enemy clearing along all three hex axes. Water and the board edge can
+complete the perimeter. When the last gap leads straight from a hunter to its
+own trail, it issues `Order::Close` and follows the selected position as the tail
+moves. Each rival gets its ranges, ring sizes and exploring scores from a
+`Temperament` in the `Temperaments` resource.
 
 **Arena**, native only: [src/arena.rs](../../src/arena.rs). `waldstatt-go arena`
 (`mise run arena`) plays whole games of computer rivals, each in its own headless
 app with the rules and the computer rivals stepped like the game tests, several at
 once on separate threads. In each game one seat, a different one each game, plays
 a changed temperament and the others the default; the report gives its mean place
-with its standard error, wins, Waldleute taken and lost, and each game's rings and
-rivals out ([ADR 0009](decisions/0009-measure-computer-rivals-in-a-headless-arena.md)).
+with its standard error, wins, Waldleute taken and lost, and group captures and
+eliminations per game ([ADR 0009](decisions/0009-measure-computer-rivals-in-a-headless-arena.md)).
 
 **Presentation**, which needs a window:
 
