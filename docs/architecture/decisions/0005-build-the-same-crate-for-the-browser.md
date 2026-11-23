@@ -20,7 +20,7 @@ sources:
 
 The [Rivalen im Wald pitch](../../pitches/rivalen-im-wald/pitch--rivalen-im-wald.md)
 asks for the first playable natively and in a desktop browser, and says the
-browser build follows Car Drive's (`2raben/carrrgh`). Car Drive builds its one
+browser build follows Car Drive's (`waldstatt-lab/carrrgh`). Car Drive builds its one
 crate for `wasm32-unknown-unknown` with WebGL2, binds it with `wasm-bindgen`,
 shrinks it with `wasm-opt`, and publishes a static page to GitHub Pages.
 

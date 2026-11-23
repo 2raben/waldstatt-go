@@ -2,8 +2,8 @@
 
 Rivals fell their way through the forest round Einsiedeln and win each other's
 Waldleute by enclosing them, as in Go. The board is a piece of the real map,
-with the rivers and lakes of the [Waldstatt](https://2raben.github.io/waldstatt/)
-(`2raben/waldstatt`), the building game this idea comes from. Everything else is
+with the rivers and lakes of the [Waldstatt](https://waldstatt-lab.github.io/waldstatt/)
+(`waldstatt-lab/waldstatt`), the building game this idea comes from. Everything else is
 new: no buildings and no economy, only groups of Waldleute, their axes, and the
 forest growing back behind them.
 

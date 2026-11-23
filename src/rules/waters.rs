@@ -1,7 +1,7 @@
 //! The boards, cut from the Waldstatt's water pages (ADR 0004).
 //!
 //! The pages in `data/waters/` are copied unchanged from the Waldstatt
-//! (`2raben/waldstatt`), whose `tools/waters.mjs` generates them from
+//! (`waldstatt-lab/waldstatt`), whose `tools/waters.mjs` generates them from
 //! swisstopo's swissTLM3D and BAFU's stream orders. A page covers 200 × 200
 //! tiles of 50 m; tile (0, 0) is the Klosterplatz Einsiedeln and north is −y.
 //! Each page is rasterized into the board's hexes much as the Waldstatt's

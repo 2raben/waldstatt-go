@@ -1,6 +1,6 @@
 # Problem
 
-The [Waldstatt](https://2raben.github.io/waldstatt/) (`2raben/waldstatt`) is a
+The [Waldstatt](https://waldstatt-lab.github.io/waldstatt/) (`waldstatt-lab/waldstatt`) is a
 building game in the forest round Einsiedeln, drawn on Switzerland's real waters.
 It grew as an experiment: players fell, build, feed their Waldleute and find
 texts, but nothing is at stake beyond keeping a colony alive, and the game never
@@ -149,7 +149,7 @@ retired; groups move as
 [ADR 0001](../../architecture/decisions/0001-move-groups-tile-by-tile-on-the-board.md)
 proposes.
 
-The browser build follows Car Drive's (`2raben/carrrgh`): the same crate for
+The browser build follows Car Drive's (`waldstatt-lab/carrrgh`): the same crate for
 `wasm32-unknown-unknown` with WebGL2, mise tasks to build and serve it, and a
 GitHub Pages workflow.
 

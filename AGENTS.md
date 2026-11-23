@@ -10,8 +10,8 @@ by rings of open ground, water crossed by wading or by ship, fog, top-down and
 isometric views, menus and a ranking, natively and in the browser. Use the
 versions in `Cargo.toml` and the dependencies pinned by `Cargo.lock`.
 
-The board comes from the Waldstatt (<https://2raben.github.io/waldstatt/>,
-`2raben/waldstatt`): its generated water pages, copied into `data/waters/` and
+The board comes from the Waldstatt (<https://waldstatt-lab.github.io/waldstatt/>,
+`waldstatt-lab/waldstatt`): its generated water pages, copied into `data/waters/` and
 credited to swisstopo and BAFU in the game.
 Write all game text in German with Swiss spelling ("ss", not "ß"), like the
 Waldstatt's.

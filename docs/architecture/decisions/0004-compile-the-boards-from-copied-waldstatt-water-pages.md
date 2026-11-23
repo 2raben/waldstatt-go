@@ -21,7 +21,7 @@ and compiling them in still holds as below.
 
 The [Rivalen im Wald pitch](../../pitches/rivalen-im-wald/pitch--rivalen-im-wald.md)
 cuts its boards from the real map, with the rivers and lakes of the Waldstatt
-(`2raben/waldstatt`). The Waldstatt generates them with `tools/waters.mjs` from
+(`waldstatt-lab/waldstatt`). The Waldstatt generates them with `tools/waters.mjs` from
 about 5 GB of swisstopo data and BAFU's stream orders, and publishes the result
 as JSON pages of 200 × 200 tiles. The game must run natively and in the
 browser, without network access, and its rules must run headless in tests.

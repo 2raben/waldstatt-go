@@ -2,13 +2,13 @@
 
 Rivals fell their way through the forest round Einsiedeln and win each other's
 Waldleute by enclosing them, as in Go. The board is a piece of the real map, with
-the waters of the [Waldstatt](https://2raben.github.io/waldstatt/); see the
+the waters of the [Waldstatt](https://waldstatt-lab.github.io/waldstatt/); see the
 [game idea](docs/idea.md). Built with [Bevy](https://bevy.org) 0.20 for native
 apps and the browser.
 
 The first playable implements the
 [Rivalen im Wald pitch](docs/pitches/rivalen-im-wald/pitch--rivalen-im-wald.md).
-The repository was created from the Bevy template (`2raben/template-bevy`), whose
+The repository was created from the Bevy template (`waldstatt-lab/template-bevy`), whose
 documentation structure, agent skills and [mise](https://mise.jdx.dev) tasks it
 keeps. All game text is German with Swiss spelling.
 
