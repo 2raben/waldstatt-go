@@ -35,7 +35,7 @@ Waldstatt Go started from a Bevy template whose records described its starter
 platformer. They were rewritten for this game: 0001 and 0002, on how groups move
 and how the rules stay headless, were accepted when the board rules replaced the
 platformer. 0003 holds as it was. The template's records remain
-readable at [3b174ac](https://github.com/2raben/waldstatt-go/tree/3b174ac/docs/architecture/decisions).
+readable at [3b174ac](https://github.com/waldstatt-lab/waldstatt-go/tree/3b174ac/docs/architecture/decisions).
 
 ## Decision index
 

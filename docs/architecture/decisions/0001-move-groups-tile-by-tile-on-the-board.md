@@ -34,7 +34,7 @@ puts groups of Waldleute on a board of 50 m tiles cut from the real map. A group
 cuts along a line the player draws, one straight step from tile to tile, more
 quickly the bigger it is, and much more slowly over water. Nothing jumps, falls or
 slides, so the box kinematics of the Bevy template this project started from
-([its movement record](https://github.com/2raben/waldstatt-go/blob/3b174ac/docs/architecture/decisions/0001-move-the-player-with-hand-written-kinematics.md))
+([its movement record](https://github.com/waldstatt-lab/waldstatt-go/blob/3b174ac/docs/architecture/decisions/0001-move-the-player-with-hand-written-kinematics.md))
 do not carry over.
 
 The board is seen from above, and the player can switch between a top-down and an
