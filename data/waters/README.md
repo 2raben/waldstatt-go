@@ -1,7 +1,7 @@
 # Water pages
 
 The boards' rivers and lakes, copied unchanged from the
-[Waldstatt](https://waldstatt-lab.github.io/waldstatt/) (`waldstatt-lab/waldstatt`) and
+[Waldstatt](https://waldstatt-lab.ch/waldstatt/) (`waldstatt-lab/waldstatt`) and
 compiled into the game by [src/rules/waters.rs](../../src/rules/waters.rs)
 ([ADR 0004](../../docs/architecture/decisions/0004-compile-the-boards-from-copied-waldstatt-water-pages.md)).
 

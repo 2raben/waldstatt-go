@@ -2,7 +2,7 @@
 
 Rivals fell their way through the forest round Einsiedeln and win each other's
 Waldleute by enclosing them, as in Go. The board is a piece of the real map, with
-the waters of the [Waldstatt](https://waldstatt-lab.github.io/waldstatt/); see the
+the waters of the [Waldstatt](https://waldstatt-lab.ch/waldstatt/); see the
 [game idea](docs/idea.md). Built with [Bevy](https://bevy.org) 0.20 for native
 apps and the browser.
 
